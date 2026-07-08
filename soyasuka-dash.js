@@ -1,5 +1,5 @@
 // api/soyasuka-dash.js
-const APPS_SCRIPT_URL = 'GANTI_DENGAN_URL_APPS_SCRIPT_KAMU';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxzvZubmYMI9rvZJmMf3mMKC1vnj94rlEnUovMW_OI0-mnIK_Irmq7RLPKiM8pe4xBL/exec';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
