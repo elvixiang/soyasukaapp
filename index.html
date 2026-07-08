@@ -961,28 +961,29 @@ async function loadCekAbsensi(){
   try{
     var r=await api({action:'getAbsensi',token:S.token,store:store,month:month});
     if(!r.ok){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
-    var rows=r.data||[]; var [yr,mo]=month.split('-'); var daysInMonth=new Date(yr,mo,0).getDate();
-    // Group by date
+    var rows=r.data||[];
+    var mparts=month.split('-'); var yr=mparts[0]; var mo=mparts[1];
+    var daysInMonth=new Date(parseInt(yr),parseInt(mo),0).getDate();
+    function parseDStr(v){if(!v)return '';var s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.substring(0,10);var d=new Date(s);if(!isNaN(d.getTime())){var d2=new Date(d.getTime()+7*3600000);return d2.toISOString().substring(0,10);}return s;}
     var byDate={};
-    rows.forEach(function(r){var d=String(r[0]).split('T')[0];if(!byDate[d])byDate[d]={};byDate[d][r[2]]={ci_time:r[4],co_time:r[5],ci_url:r[6],co_url:r[7]};});
-    // Get unique staff
-    var staffSet={}; rows.forEach(function(r){staffSet[r[2]]=r[3];});
+    rows.forEach(function(row){var d=parseDStr(row[0]);if(!byDate[d])byDate[d]={};byDate[d][row[2]]={ci_time:row[4],co_time:row[5],ci_url:row[6],co_url:row[7]};});
+    var staffSet={}; rows.forEach(function(row){staffSet[row[2]]=row[3];});
     var staffList=Object.keys(staffSet);
     if(!staffList.length){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">📭</div><div>Tidak ada data absensi bulan ini</div></div>';return;}
     var html='<div class="so-tbl-wrap"><table class="so-tbl"><thead><tr>'+
-    '<th class="sticky" style="left:0">Tanggal</th>'+
+    '<th class="sticky" style="left:0">Tgl</th>'+
     staffList.map(function(s){return '<th>'+staffSet[s]+'<br><span style="font-size:9px;opacity:.6">CI | CO</span></th>';}).join('')+
     '</tr></thead><tbody>';
-    for(var d=1;d<=daysInMonth;d++){
-      var dateStr=yr+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    for(var dd=1;dd<=daysInMonth;dd++){
+      var dateStr=yr+'-'+String(mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
       var dayData=byDate[dateStr]||{};
-      html+='<tr><td class="sticky" style="font-size:12px;left:0">'+d+'</td>'+
+      html+='<tr><td class="sticky" style="font-size:12px;left:0;font-weight:600">'+dd+'</td>'+
       staffList.map(function(s){
-        var sd=dayData[s];if(!sd)return '<td style="color:var(--line)">–</td>';
+        var sd=dayData[s];if(!sd)return '<td style="color:var(--line);font-size:12px">–</td>';
         var ci=sd.ci_time?fmtTime(sd.ci_time):'–';
         var co=sd.co_time?fmtTime(sd.co_time):'–';
-        var ciBtn=sd.ci_url?'<span onclick="showPopup(\'Foto Absen\',\'<img src=\\\"'+sd.ci_url+'\\\" style=\\\"max-width:100%\\\">\')+" style="cursor:pointer;color:var(--blue);font-size:10px"> 📷</span>':'';
-        var coBtn=sd.co_url?'<span onclick="showPopup(\'Foto Absen\',\'<img src=\\\"'+sd.co_url+'\\\" style=\\\"max-width:100%\\\">\')+" style="cursor:pointer;color:var(--blue);font-size:10px"> 📷</span>':'';
+        var ciBtn=sd.ci_url?(' <span onclick="openAbsPhoto(\''+sd.ci_url+'\')" style="cursor:pointer;color:var(--blue);font-size:11px">📷</span>'):'';
+        var coBtn=sd.co_url?(' <span onclick="openAbsPhoto(\''+sd.co_url+'\')" style="cursor:pointer;color:var(--blue);font-size:11px">📷</span>'):'';
         return '<td style="font-size:12px">'+ci+ciBtn+' | '+co+coBtn+'</td>';
       }).join('')+'</tr>';
     }
