@@ -67,6 +67,14 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 .hbg span{width:18px;height:2px;background:var(--brown);border-radius:2px;display:block}
 .tb-title{font-weight:700;font-size:15px;color:var(--brown-deep)}
 .tb-date{font-size:12px;color:var(--brown-soft);margin-left:auto}
+.tb-avatar{width:34px;height:34px;border-radius:50%;background:var(--brown);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;cursor:pointer;overflow:hidden;flex:0 0 auto;border:2px solid var(--gold)}
+.tb-avatar img{width:100%;height:100%;object-fit:cover}
+/* Hourglass loading */
+.hourglass{width:34px;height:34px;position:relative;display:inline-block;animation:hg-flip 1.2s infinite ease-in-out}
+.hourglass::before{content:'⏳';font-size:30px;line-height:34px}
+@keyframes hg-flip{0%,40%{transform:rotate(0)}50%,90%{transform:rotate(180deg)}100%{transform:rotate(180deg)}}
+.hg-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:26px}
+.hg-wrap .hg-txt{font-size:13px;color:var(--brown-soft)}
 .content{flex:1;overflow-y:auto;padding:20px}
 
 /* Pages */
@@ -302,8 +310,10 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   <div class="main">
     <div class="topbar">
       <button class="hbg" id="hamburger"><span></span><span></span><span></span></button>
+      <div class="tb-avatar" id="tb-avatar" title="Ganti foto profil">?</div>
       <div class="tb-title" id="tb-title">Dashboard</div>
       <div class="tb-date" id="tb-date"></div>
+      <input type="file" accept="image/*" id="profile-photo-input" style="display:none">
     </div>
     <div class="content" id="content"></div>
   </div>
@@ -370,8 +380,69 @@ function startApp(){
   document.getElementById('sb-role-badge').textContent=u.role;
   document.getElementById('sb-av').textContent=(u.display_name||'?')[0].toUpperCase();
   document.getElementById('tb-date').textContent=fmtDate(S.today);
+  updateProfileAvatar(u.photo_url);
   buildNav(); navigateTo('dashboard'); loadBaseData();
 }
+
+// ── PROFILE PHOTO ──
+function updateProfileAvatar(url){
+  var av=document.getElementById('tb-avatar');
+  var sbav=document.getElementById('sb-av');
+  var initial=(S.user&&S.user.display_name?S.user.display_name[0]:'?').toUpperCase();
+  if(url){
+    var img='<img src="'+url+'" alt="foto profil" onerror="this.parentNode.textContent=\''+initial+'\'">';
+    if(av) av.innerHTML=img;
+    if(sbav) sbav.innerHTML=img;
+  } else {
+    if(av) av.textContent=initial;
+    if(sbav) sbav.textContent=initial;
+  }
+}
+// Kompres gambar di browser jadi <=1MB (via canvas), return dataURL jpeg
+function compressImage(file, cb){
+  var r=new FileReader();
+  r.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var max=1000; var w=img.width,h=img.height;
+      if(w>max){h=h*max/w;w=max;}
+      if(h>max){w=w*max/h;h=max;}
+      var canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      // turunkan kualitas sampai <=1MB
+      var q=0.8; var out=canvas.toDataURL('image/jpeg',q);
+      while(out.length>1400000 && q>0.3){ q-=0.1; out=canvas.toDataURL('image/jpeg',q); }
+      cb(out);
+    };
+    img.src=e.target.result;
+  };
+  r.readAsDataURL(file);
+}
+(function(){
+  var av=document.getElementById('tb-avatar');
+  var inp=document.getElementById('profile-photo-input');
+  if(av&&inp){
+    av.addEventListener('click',function(){ inp.click(); });
+    var sbav=document.getElementById('sb-av');
+    if(sbav) sbav.addEventListener('click',function(){ inp.click(); });
+    inp.addEventListener('change',function(){
+      var f=inp.files[0]; if(!f) return;
+      av.innerHTML='<span class="spin" style="border-top-color:#fff;width:16px;height:16px"></span>';
+      compressImage(f,function(dataUrl){
+        api({action:'saveProfilePhoto',token:S.token,photo_base64:dataUrl,filename:'profile.jpg'})
+          .then(function(r){
+            if(r&&r.ok){
+              S.user.photo_url=r.url;
+              try{ var s=loadS(); if(s){ s.user=S.user; saveS(s.token,s.user);} }catch(e){}
+              updateProfileAvatar(r.url);
+            } else { updateProfileAvatar(S.user.photo_url); alert('Gagal upload foto profil'); }
+          })
+          .catch(function(){ updateProfileAvatar(S.user.photo_url); alert('Gagal upload foto profil'); });
+      });
+      inp.value='';
+    });
+  }
+})();
 
 // ── NAV ──
 var NAV_DEFS = {
@@ -485,6 +556,7 @@ document.getElementById('popup-bg').addEventListener('click',function(e){if(e.ta
 // =========================================================
 // DASHBOARD
 // =========================================================
+var LOADING='<div class="hg-wrap"><div class="hourglass"></div><div class="hg-txt">Memuat...</div></div>';
 var QUOTES = ['Senyum adalah bumbu gratis yang paling enak 😊','Setiap gelas yang tersaji adalah karya tangan kita 🍵','Hari ini kita tuangkan yang terbaik untuk pelanggan 💪','Konsistensi adalah rahasia kualitas yang sesungguhnya ✨','Mulai hari dengan semangat, akhiri dengan bangga 🌟'];
 
 async function renderDashboard(c){
@@ -521,9 +593,10 @@ async function renderDashboard(c){
     '<div style="font-size:13px;color:var(--brown-soft);margin-bottom:18px">'+fmtDate(S.today)+'</div>'+
     storeSel+
     '<div class="kpi-grid" id="d-kpi"><div class="kpi"><div class="kpi-label">Pilih toko</div><div class="kpi-val" style="font-size:14px">untuk melihat data</div></div></div>'+
-    '<div class="sec">📋 Status Hari Ini</div>'+
+    '<div class="sec" id="d-chart-sec" style="display:none">📈 Sales Bulan Ini (Tgl 1 – Hari Ini)</div>'+
+    '<div id="d-chart"></div>'+
     '<div id="d-status">–</div>';
-    if(S.store){ var sd=await loadStoreData(S.store); if(sd) fillOwnerDashboard(sd); }
+    if(S.store){ fillOwnerDashboard(S.store); }
   }
 }
 
@@ -547,20 +620,78 @@ function fillStaffDashboard(sd){
   mg.innerHTML=missions.map(function(m){ return '<div class="mission'+(m.done?' done':'')+'" onclick="navigateTo(\''+m.page+'\')" style="cursor:pointer"><span class="mic">'+m.ico+'</span><div><div class="ml">'+m.lbl+'</div><div class="ms">'+m.sub+'</div></div>'+(m.done?'<span class="mck">✅</span>':'')+'</div>'; }).join('');
 }
 
-function fillOwnerDashboard(sd){
-  var rs=sd.reportSales; var sales=rs?Number(rs[9])||0:0; var txn=rs?Number(rs[10])||0:0;
-  var co=sd.checklistOpening||[]; var cc=sd.checklistClosing||[];
+async function fillOwnerDashboard(store){
+  var kpig=document.getElementById('d-kpi');
+  if(kpig) kpig.innerHTML='<div class="kpi"><div class="kpi-label">Memuat…</div><div class="kpi-val" style="font-size:14px">⏳</div></div>';
+  // Data hari ini (utk target, status opening/closing)
+  var todaySd=await loadStoreData(store,S.today);
+  // Data KEMARIN (utk Sales & Wastage kemarin)
+  var yday=new Date(Date.now()+7*3600000); yday.setDate(yday.getDate()-1);
+  var ydayStr=yday.toISOString().split('T')[0];
+  var ySd=await loadStoreData(store,ydayStr);
+  var ySales=(ySd&&ySd.reportSales)?Number(ySd.reportSales[9])||0:0;
+  var yTxn=(ySd&&ySd.reportSales)?Number(ySd.reportSales[10])||0:0;
+  var yWst=(ySd&&ySd.wastageToday)?ySd.wastageToday.length:0;
+  var co=(todaySd&&todaySd.checklistOpening)||[]; var cc=(todaySd&&todaySd.checklistClosing)||[];
   var coItems=co.filter(function(r){return r[1]&&r[1]!=='item';}); var coDone=coItems.filter(function(r){return r[2]==='done';}).length;
   var ccItems=cc.filter(function(r){return r[1]&&r[1]!=='item';}); var ccDone=ccItems.filter(function(r){return r[2]==='done';}).length;
-  var kpig=document.getElementById('d-kpi');
+  var target=(todaySd&&todaySd.target)||0;
+  var openOk=coItems.length>0&&coDone>=coItems.length;
+  var closeOk=ccItems.length>0&&ccDone>=ccItems.length;
   if(kpig) kpig.innerHTML=
-    '<div class="kpi dark"><div class="kpi-label">Sales Hari Ini</div><div class="kpi-val">'+fmtRp(sales)+'</div><div class="kpi-sub">'+txn+' transaksi</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Target</div><div class="kpi-val">'+fmtRp(sd.target||0)+'</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Opening</div><div class="kpi-val">'+coDone+'/'+coItems.length+'</div><div class="kpi-sub">item selesai</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Closing</div><div class="kpi-val">'+ccDone+'/'+ccItems.length+'</div><div class="kpi-sub">item selesai</div></div>'+
-    '<div class="kpi"><div class="kpi-label">Wastage</div><div class="kpi-val">'+(sd.wastageToday||[]).length+'</div><div class="kpi-sub">entri hari ini</div></div>';
+    '<div class="kpi dark"><div class="kpi-label">Sales Kemarin</div><div class="kpi-val">'+fmtRp(ySales)+'</div><div class="kpi-sub">'+yTxn+' transaksi</div></div>'+
+    '<div class="kpi"><div class="kpi-label">Target Hari Ini</div><div class="kpi-val">'+fmtRp(target)+'</div></div>'+
+    '<div class="kpi"><div class="kpi-label">Status Opening</div><div class="kpi-val" style="color:'+(openOk?'var(--green)':'var(--red)')+'">'+(openOk?'✅':'❌')+'</div><div class="kpi-sub">'+coDone+'/'+coItems.length+' item</div></div>'+
+    '<div class="kpi"><div class="kpi-label">Status Closing</div><div class="kpi-val" style="color:'+(closeOk?'var(--green)':'var(--red)')+'">'+(closeOk?'✅':'❌')+'</div><div class="kpi-sub">'+ccDone+'/'+ccItems.length+' item</div></div>'+
+    '<div class="kpi"><div class="kpi-label">Wastage Kemarin</div><div class="kpi-val">'+yWst+'</div><div class="kpi-sub">entri</div></div>';
+  // Quote penyemangat di bawah
   var dst=document.getElementById('d-status');
   if(dst) dst.innerHTML='<div class="quote-box">'+QUOTES[new Date().getDay()%QUOTES.length]+'</div>';
+  // Grafik sales & transaksi tgl 1 s/d hari ini bulan berjalan
+  buildMonthlyChart(store);
+}
+
+// Grafik sales & total transaksi dari tanggal 1 s/d hari ini (bulan berjalan)
+async function buildMonthlyChart(store){
+  var sec=document.getElementById('d-chart-sec');
+  var box=document.getElementById('d-chart');
+  if(box) box.innerHTML='<div style="padding:14px">'+LOADING+'</div>';
+  if(sec) sec.style.display='';
+  var now=new Date(Date.now()+7*3600000);
+  var y=now.getFullYear(); var m=now.getMonth(); var today=now.getDate();
+  var days=[];
+  for(var d=1;d<=today;d++){
+    var ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    days.push(ds);
+  }
+  // ambil data tiap hari (paralel)
+  var results=await Promise.all(days.map(function(ds){return loadStoreData(store,ds).catch(function(){return null;});}));
+  var data=results.map(function(sd,i){
+    var rs=sd&&sd.reportSales; 
+    return {day:i+1,sales:rs?Number(rs[9])||0:0,txn:rs?Number(rs[10])||0:0};
+  });
+  var maxSales=Math.max(1,Math.max.apply(null,data.map(function(x){return x.sales;})));
+  var totalSales=data.reduce(function(a,x){return a+x.sales;},0);
+  var totalTxn=data.reduce(function(a,x){return a+x.txn;},0);
+  var bars=data.map(function(x){
+    var h=Math.round((x.sales/maxSales)*100);
+    var isToday=x.day===today;
+    return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:14px">'+
+      '<div style="width:100%;background:var(--surface2);border-radius:4px 4px 0 0;height:110px;display:flex;align-items:flex-end;overflow:hidden">'+
+        '<div title="Tgl '+x.day+': '+fmtRp(x.sales)+' · '+x.txn+' trx" style="width:100%;background:'+(isToday?'var(--gold)':'var(--brown-deep)')+';height:'+h+'%;border-radius:4px 4px 0 0;transition:height .3s"></div>'+
+      '</div>'+
+      '<div style="font-size:9px;color:var(--brown-soft)">'+x.day+'</div>'+
+    '</div>';
+  }).join('');
+  if(box) box.innerHTML=
+    '<div class="card" style="margin-bottom:18px">'+
+      '<div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12.5px">'+
+        '<div><span style="color:var(--brown-soft)">Total Sales MTD</span><br><b style="font-size:15px">'+fmtRp(totalSales)+'</b></div>'+
+        '<div style="text-align:right"><span style="color:var(--brown-soft)">Total Transaksi MTD</span><br><b style="font-size:15px">'+totalTxn+'</b></div>'+
+      '</div>'+
+      '<div style="display:flex;align-items:flex-end;gap:2px;padding-top:6px">'+bars+'</div>'+
+      '<div style="font-size:10.5px;color:var(--brown-soft);margin-top:8px;text-align:center">Tinggi batang = sales harian · batang emas = hari ini</div>'+
+    '</div>';
 }
 
 // =========================================================
@@ -582,7 +713,7 @@ async function loadPerfData(){
   var store=document.getElementById('po-store')&&document.getElementById('po-store').value;
   var date=document.getElementById('po-date')&&document.getElementById('po-date').value;
   if(!store||!date){ document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei">📊</div><div>Pilih toko dan tanggal</div></div>'; return; }
-  document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei"><span class="spin" style="border-top-color:var(--brown)"></span></div></div>';
+  document.getElementById('po-content').innerHTML=''+LOADING+'';
   var sd=await loadStoreData(store,date);
   if(!sd){ document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>Gagal memuat data</div></div>'; return; }
 
@@ -634,11 +765,21 @@ window.showSalesDetail=showSalesDetail;
 
 function showWastageDetail(wst,isOwner){
   if(!wst||!wst.length){ showPopup('Wastage','Tidak ada wastage'); return; }
-  var html=wst.map(function(r){ return '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:8px">'+
+  var total=0; var anyNominal=false;
+  var html=wst.map(function(r){
+    var nomLine='';
+    if(isOwner){
+      var nom=wastageNominal(r[1],r[3]);
+      if(nom!==null){ total+=nom; anyNominal=true; nomLine='<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:3px">Nominal: '+fmtRp(nom)+'</div>'; }
+      else nomLine='<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Nominal: – (produk tak ada di RECAP)</div>';
+    }
+    return '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:8px">'+
     '<div style="font-weight:700;color:var(--brown-deep)">'+r[1]+' — '+r[3]+' '+r[4]+'</div>'+
     '<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Alasan: '+r[5]+' · Oleh: '+r[6]+'</div>'+
-    (isOwner?'<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:3px">Estimasi nilai: data COGS tidak tersedia</div>':'')+
-    '</div>'; }).join('');
+    nomLine+'</div>'; }).join('');
+  if(isOwner&&anyNominal){
+    html+='<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px;margin-top:4px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(total)+'</span></div>';
+  }
   showPopup('Detail Wastage ('+wst.length+')', html);
 }
 window.showWastageDetail=showWastageDetail;
@@ -708,7 +849,7 @@ async function renderChecklist(c,type){
   if(!ensureStore(c)) return;
   var icon=type==='opening'?'☀️':'🌙';
   c.innerHTML='<div class="card-title">'+icon+' Checklist '+type.charAt(0).toUpperCase()+type.slice(1)+' — '+S.store.replace('SOYASUKA_','')+'</div>'+
-  '<div id="cl-list"><div class="empty"><span class="spin" style="border-top-color:var(--brown)"></span></div></div>'+
+  '<div id="cl-list">'+LOADING+'</div>'+
   '<div class="row-actions" id="cl-footer" style="display:none"><button class="save-btn" onclick="saveChecklist(\''+type+'\')">Simpan Checklist</button><span id="cl-sync" style="font-size:12px;color:var(--brown-soft);font-style:italic"></span></div>';
   var sd=await loadStoreData(S.store);
   var rows=(type==='opening'?(sd?sd.checklistOpening||[]:[]):(sd?sd.checklistClosing||[]:[]))
@@ -789,9 +930,9 @@ async function renderWastage(c){
   '<div class="fg"><label>Bahan / Menu</label><select class="fi2" id="wst-item" onchange="fillUnit()">'+ingOpts+'</select></div>'+
   '<div class="fg"><label>Jumlah</label><input class="fi2" type="number" id="wst-qty" placeholder="0"></div>'+
   '<div class="fg"><label>Satuan</label><input class="fi2" type="text" id="wst-unit" placeholder="–" readonly></div>'+
-  '<div class="fg"><label>Alasan</label><select class="fi2" id="wst-reason"><option value="">— Alasan —</option><option>Basi / expired</option><option>Bau</option><option>Jatuh / tumpah</option><option>Salah produksi</option><option>Kelebihan produksi</option><option>Kerusakan kemasan</option><option>Lainnya</option></select></div>'+
+  '<div class="fg"><label>Alasan</label><select class="fi2" id="wst-reason" onchange="wstReasonChange()"><option value="">— Alasan —</option><option>Basi / expired</option><option>Bau</option><option>Jatuh / tumpah</option><option>Salah produksi</option><option>Kelebihan produksi</option><option>Kerusakan kemasan</option><option>Lainnya</option></select></div>'+
   '<div class="fg"><label>Dilaporkan oleh</label><input class="fi2" value="'+S.user.display_name+'" readonly></div>'+
-  '<div class="fg full"><label>Catatan</label><input class="fi2" type="text" id="wst-notes" placeholder="opsional"></div>'+
+  '<div class="fg full"><label id="wst-notes-lbl">Catatan</label><input class="fi2" type="text" id="wst-notes" placeholder="opsional"></div>'+
   '<div class="fg full"><label>Foto Bukti</label><div class="photo-up" onclick="document.getElementById(\'wst-photo-inp\').click()"><div id="wst-photo-preview">📷 Klik upload foto bukti<br><small>Otomatis dikompres &lt;1MB</small></div><input type="file" id="wst-photo-inp" accept="image/*" capture="environment" onchange="handleWstPhoto(this)"></div></div>'+
   '</div>'+
   '<div class="row-actions"><button class="save-btn" onclick="submitWastage()">+ Tambah Wastage</button><div id="wst-msg" class="save-msg"></div></div></div>'+
@@ -808,7 +949,9 @@ async function submitWastage(){
   var item=document.getElementById('wst-item')&&document.getElementById('wst-item').value;
   var qty=document.getElementById('wst-qty')&&document.getElementById('wst-qty').value;
   var reason=document.getElementById('wst-reason')&&document.getElementById('wst-reason').value;
+  var notes=document.getElementById('wst-notes')?document.getElementById('wst-notes').value.trim():'';
   if(!item||!qty||!reason){showWM('Lengkapi item, jumlah, dan alasan','err');return;}
+  if(reason==='Lainnya'&&!notes){showWM('Alasan "Lainnya" wajib mengisi Catatan','err');var nn=document.getElementById('wst-notes');if(nn)nn.focus();return;}
   var btn=document.querySelector('.card .save-btn');if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   var photo_url='';
   if(wstPhoto){try{var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,photo_base64:wstPhoto,filename:'wastage_'+Date.now()+'.jpg'});if(pr.ok)photo_url=pr.url;}catch(e){}}
@@ -821,6 +964,15 @@ async function submitWastage(){
 }
 window.submitWastage=submitWastage;
 function showWM(m,t){var el=document.getElementById('wst-msg');if(el){el.textContent=m;el.className='save-msg '+t;}}
+function wstReasonChange(){
+  var reason=document.getElementById('wst-reason').value;
+  var lbl=document.getElementById('wst-notes-lbl');
+  var inp=document.getElementById('wst-notes');
+  var wajib=(reason==='Lainnya');
+  if(lbl) lbl.innerHTML=wajib?'Catatan <span style="color:var(--red)">*wajib</span>':'Catatan';
+  if(inp) inp.placeholder=wajib?'Wajib diisi karena alasan Lainnya':'opsional';
+}
+window.wstReasonChange=wstReasonChange;
 
 // Wastage view (AM/Owner)
 async function renderWastageView(c){
@@ -828,15 +980,46 @@ async function renderWastageView(c){
   c.innerHTML='<div class="perf-date"><select id="wv-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select><input type="date" id="wv-date" value="'+S.today+'"><button class="save-btn" onclick="loadWV()">Tampilkan</button></div><div id="wv-content"></div>';
   if(S.store){document.getElementById('wv-store').value=S.store;loadWV();}
 }
+// Cari data RECAP utk item wastage. RECAP: kol C(idx2)=nama produk, D(idx3)=yield, F(idx5)=cost.
+// Nominal proporsional = (qty_dilaporkan / yield) * cost.
+function wastageNominal(itemName,qty){
+  var bd=S.baseData; var recap=(bd&&bd.recap)||[];
+  var q=Number(qty)||0;
+  for(var i=1;i<recap.length;i++){
+    var r=recap[i];
+    if(r&&r[2]&&String(r[2]).trim().toLowerCase()===String(itemName).trim().toLowerCase()){
+      var yield_=Number(r[3])||0;
+      var cost=Number(r[5])||0;
+      if(yield_>0) return (q/yield_)*cost;
+      return null; // yield tak valid → tak bisa hitung
+    }
+  }
+  return null; // item tak ditemukan di RECAP
+}
 async function loadWV(){
   var store=document.getElementById('wv-store')&&document.getElementById('wv-store').value;
   var date=document.getElementById('wv-date')&&document.getElementById('wv-date').value;
   if(!store)return;
+  var el=document.getElementById('wv-content'); if(el) el.innerHTML=LOADING;
+  // pastikan baseData (RECAP) sudah dimuat utk perhitungan nominal
+  if(!S.baseData) await loadBaseData();
   var sd=await loadStoreData(store,date);
   var wst=sd?sd.wastageToday||[]:[];
   var isOwner=S.user.role==='Owner';
+  var totalNom=0; var adaNomTakLengkap=false;
+  var rowsHtml=wst.map(function(r){
+    var nomHtml='';
+    if(isOwner){
+      var nom=wastageNominal(r[1],r[3]);
+      if(nom!=null){ totalNom+=nom; nomHtml='<div class="wlog-nom">Nominal: '+fmtRp(nom)+'</div>'; }
+      else { adaNomTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft)">Nominal: – (item tidak ada di RECAP)</div>'; }
+    }
+    var foto=r[7]?'<img src="'+r[7]+'" style="width:50px;height:50px;border-radius:8px;object-fit:cover;cursor:pointer" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+r[7]+'\\\" style=\\\"max-width:100%\\\">\')">':'';
+    return '<div class="wlog-item"><div class="wlog-dot"></div><div style="flex:1"><div class="wlog-name">'+r[1]+' — '+r[3]+' '+r[4]+'</div><div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div>'+nomHtml+'</div>'+foto+'</div>';
+  }).join('');
+  var totalHtml=(isOwner&&wst.length)?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(totalNom)+'</span></div>'+(adaNomTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang tidak ditemukan di RECAP.</div>':''):'';
   document.getElementById('wv-content').innerHTML='<div class="sec">Wastage — '+fmtDateShort(date)+' ('+wst.length+')</div>'+
-  (wst.length?'<div class="wlog">'+wst.map(function(r){return '<div class="wlog-item">'+'<div class="wlog-dot"></div>'+'<div style="flex:1">'+'<div class="wlog-name">'+r[1]+' — '+r[3]+' '+r[4]+'</div>'+'<div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div>'+(isOwner?'<div class="wlog-nom">Nominal: data dari COGS</div>':'')+'</div>'+(r[7]?'<img src="'+r[7]+'" style="width:50px;height:50px;border-radius:8px;object-fit:cover;cursor:pointer" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+r[7]+'\\\" style=\\\"max-width:100%\\\">\')">':'')+'</div>';}).join('')+'</div>':'<div class="empty"><div class="ei">✅</div><div>Tidak ada wastage</div></div>');
+  (wst.length?'<div class="wlog">'+rowsHtml+'</div>'+totalHtml:'<div class="empty"><div class="ei">✅</div><div>Tidak ada wastage</div></div>');
 }
 window.loadWV=loadWV;
 
@@ -845,28 +1028,28 @@ window.loadWV=loadWV;
 // =========================================================
 async function renderSO(c){
   if(!ensureStore(c)) return;
-  var bd=S.baseData; var ingRows=(bd&&bd.ingMaster)||[];
-  // Filter NEED SO = YES, col index 4
-  var soItems=ingRows.slice(1).filter(function(r){return String(r[4]).toUpperCase()==='YES';});
+  c.innerHTML=LOADING;
+  var sd=await loadStoreData(S.store);
+  // soList dari backend: hanya item ING MASTER dgn Need SO (kol F)=YES, unit dari kol D
+  var soItems=(sd&&sd.soList)||[];
   if(!soItems.length){
-    c.innerHTML='<div class="empty"><div class="ei">⏳</div><div>Memuat data bahan baku...</div></div>';
-    await loadBaseData(); ingRows=(S.baseData&&S.baseData.ingMaster)||[];
-    soItems=ingRows.slice(1).filter(function(r){return String(r[4]).toUpperCase()==='YES';});
+    c.innerHTML='<div class="empty"><div class="ei">📦</div><div>Belum ada bahan yang ditandai perlu Stock Opname (kolom Need SO = YES di ING MASTER)</div></div>';
+    return;
   }
   c.innerHTML='<div class="card">'+
   '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
-  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:12px">📊 Data SO tersimpan per tanggal di spreadsheet. Tiap tanggal baru akan muncul sebagai kolom baru di sheet STOCK_OPNAME.</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:12px">📊 Daftar bahan otomatis dari ING MASTER (Need SO = YES). Data tersimpan per tanggal di sheet STOCK_OPNAME.</div>'+
   '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" id="so-date" value="'+S.today+'" readonly></div></div>'+
   '<div class="tbl-wrap" style="margin-top:14px"><table class="tbl" id="so-tbl">'+
   '<thead><tr><th>#</th><th>Nama Bahan</th><th>Unit</th><th>Qty Aktual</th><th>Catatan</th></tr></thead>'+
-  '<tbody>'+soItems.map(function(r,i){
+  '<tbody>'+soItems.map(function(it,i){
     return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
-    '<td style="font-weight:600">'+r[0]+'</td>'+
-    '<td style="color:var(--brown-soft)">'+r[2]+'</td>'+
+    '<td style="font-weight:600">'+it.name+'</td>'+
+    '<td style="color:var(--brown-soft)">'+(it.unit||'')+'</td>'+
     '<td><input type="number" min="0" placeholder="0" id="so-qty-'+i+'"></td>'+
     '<td><input type="text" placeholder="–" id="so-note-'+i+'" style="width:120px;font-family:inherit;font-size:12px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:6px 8px;outline:none"></td></tr>';
   }).join('')+'</tbody></table></div>'+
-  '<div class="row-actions"><button class="save-btn" onclick="saveSO('+JSON.stringify(soItems.map(function(r){return{name:r[0],unit:r[2]};})).replace(/</g,'&lt;')+')">Simpan Stock Opname</button><div id="so-msg" class="save-msg"></div></div></div>';
+  '<div class="row-actions"><button class="save-btn" onclick="saveSO('+JSON.stringify(soItems.map(function(it){return{name:it.name,unit:it.unit};})).replace(/</g,'&lt;')+')">Simpan Stock Opname</button><div id="so-msg" class="save-msg"></div></div></div>';
 }
 
 async function saveSO(items){
@@ -894,6 +1077,7 @@ async function renderAbsensi(c){
   '<div class="fg"><label>Nama</label><input class="fi2" value="'+S.user.display_name+'" readonly></div>'+
   '<div class="fg"><label>Tanggal</label><input class="fi2" value="'+fmtDate(S.today)+'" readonly></div>'+
   '</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--orange);border-radius:8px;padding:10px 12px;margin-top:12px;line-height:1.5">📸 <b>Wajib selfie</b> dengan <b>atribut lengkap</b> (seragam/apron) dan pastikan <b>background terlihat berada di lokasi toko</b>. Foto tanpa atribut atau bukan di lokasi toko dianggap tidak sah.</div>'+
   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">'+
   '<div class="card" style="margin-bottom:0">'+
   '<div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px">🌅 Clock In</div>'+
@@ -957,7 +1141,7 @@ async function loadCekAbsensi(){
   var store=document.getElementById('ca-store')&&document.getElementById('ca-store').value;
   var month=document.getElementById('ca-month')&&document.getElementById('ca-month').value;
   if(!store||!month)return;
-  document.getElementById('ca-content').innerHTML='<div class="empty"><span class="spin" style="border-top-color:var(--brown)"></span></div>';
+  document.getElementById('ca-content').innerHTML=''+LOADING+'';
   try{
     var r=await api({action:'getAbsensi',token:S.token,store:store,month:month});
     if(!r.ok){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
@@ -992,6 +1176,11 @@ async function loadCekAbsensi(){
   }catch(e){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.loadCekAbsensi=loadCekAbsensi;
+function openAbsPhoto(url){
+  if(!url){alert('Foto tidak tersedia');return;}
+  showPopup('Foto Absensi','<img src="'+url+'" style="max-width:100%;border-radius:10px">');
+}
+window.openAbsPhoto=openAbsPhoto;
 
 // =========================================================
 // MENU
@@ -1046,9 +1235,12 @@ window.filterMenu=filterMenu;
 // RESEP (dari COGS CALC)
 // =========================================================
 function renderResep(c){
-  if(S.user.role==='Staff'){c.innerHTML='<div class="empty"><div class="ei">🔒</div><div>Resep hanya untuk Owner dan AM</div></div>';return;}
   var bd=S.baseData; var rows=(bd&&bd.cogsCalc)||[];
-  if(!rows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
+  if(!rows.length){
+    c.innerHTML=LOADING;
+    setTimeout(function(){ loadBaseData().then(function(){ if(S.baseData&&(S.baseData.cogsCalc||[]).length) renderResep(c); else c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; }); },400);
+    return;
+  }
   // Parse resep dari COGS CALC: section headers (col A, no B), ingredients (col A,B,C,D,E), yield rows
   var sections=[]; var curSection=null;
   rows.forEach(function(r){
@@ -1156,14 +1348,40 @@ function renderCogs(c){
   var bd=S.baseData; var rows=(bd&&bd.recap)||[];
   if(!rows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
   var items=rows.slice(1).filter(function(r){return r[2]&&r[8];});
-  c.innerHTML='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Menu</th><th>Kategori</th><th style="text-align:right">Harga Jual</th><th style="text-align:right">COGS %</th><th style="text-align:right">COGS after Pb1</th></tr></thead><tbody>'+
-  items.map(function(r,i){
+  // daftar kategori unik dari kol B (idx1)
+  var cats=[]; items.forEach(function(r){var ct=String(r[1]||'').trim();if(ct&&cats.indexOf(ct)<0)cats.push(ct);}); cats.sort();
+  var catOpts='<option value="">Semua Kategori</option>'+cats.map(function(ct){return '<option value="'+ct+'">'+ct+'</option>';}).join('');
+  c.innerHTML='<div class="perf-date" style="flex-wrap:wrap">'+
+  '<input type="text" id="cogs-search" placeholder="🔍 Cari menu..." oninput="renderCogsRows()" style="flex:1;min-width:160px;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:8px 10px;outline:none">'+
+  '<select id="cogs-cat" onchange="renderCogsRows()">'+catOpts+'</select>'+
+  '</div>'+
+  '<div id="cogs-count" style="font-size:12px;color:var(--brown-soft);margin:2px 2px 8px"></div>'+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Menu</th><th>Kategori</th><th style="text-align:right">Harga Jual</th><th style="text-align:right">COGS %</th><th style="text-align:right">COGS after Pb1</th></tr></thead><tbody id="cogs-body"></tbody></table></div>';
+  window.__cogsItems=items;
+  renderCogsRows();
+}
+function renderCogsRows(){
+  var items=window.__cogsItems||[];
+  var q=(document.getElementById('cogs-search')&&document.getElementById('cogs-search').value||'').trim().toLowerCase();
+  var cat=(document.getElementById('cogs-cat')&&document.getElementById('cogs-cat').value||'');
+  var filtered=items.filter(function(r){
+    var okQ=!q||String(r[2]).toLowerCase().indexOf(q)>=0;
+    var okC=!cat||String(r[1]||'').trim()===cat;
+    return okQ&&okC;
+  });
+  var body=document.getElementById('cogs-body');
+  var cnt=document.getElementById('cogs-count');
+  if(cnt) cnt.textContent=filtered.length+' dari '+items.length+' menu';
+  if(!body)return;
+  if(!filtered.length){body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--brown-soft);padding:18px">Tidak ada menu yang cocok</td></tr>';return;}
+  body.innerHTML=filtered.map(function(r){
     var cogsRaw=r[9]; var cogsPct=typeof cogsRaw==='number'?(cogsRaw<=1&&cogsRaw>0?cogsRaw*100:cogsRaw):parseFloat(String(cogsRaw).replace('%',''))||0;
     var afterRaw=r[11]; var afterPct=typeof afterRaw==='number'?(afterRaw<=1&&afterRaw>0?afterRaw*100:afterRaw):parseFloat(String(afterRaw).replace('%',''))||0;
     var cc=cogsPct>=30?'var(--red)':cogsPct>=20?'var(--gold)':'var(--green)';
     return '<tr><td style="font-weight:600">'+r[2]+'</td><td><span class="tag gold">'+r[1]+'</span></td><td style="text-align:right">'+fmtRp(r[8])+'</td><td style="text-align:right;font-weight:700;color:'+cc+'">'+cogsPct.toFixed(0)+'%</td><td style="text-align:right;font-weight:700;color:'+cc+'">'+(afterPct?afterPct.toFixed(0)+'%':'–')+'</td></tr>';
-  }).join('')+'</tbody></table></div>';
+  }).join('');
 }
+window.renderCogsRows=renderCogsRows;
 
 </script>
 </body>
