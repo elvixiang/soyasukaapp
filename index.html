@@ -52,7 +52,8 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 .ni .ico{font-size:16px;width:20px;text-align:center;flex:none}
 .sb-foot{padding:12px 18px;border-top:1px solid rgba(255,255,255,.08)}
 .user-row{display:flex;align-items:center;gap:9px}
-.uav{width:32px;height:32px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:13px;flex:none}
+.uav{width:32px;height:32px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:13px;flex:none;overflow:hidden}
+.uav img{width:100%;height:100%;object-fit:cover;display:block}
 .uname{font-size:13px;color:#fff;font-weight:600;line-height:1.2}
 .urole{font-size:11px;color:rgba(255,255,255,.4)}
 .logout-btn{margin-left:auto;background:rgba(255,255,255,.08);border:0;color:rgba(255,255,255,.45);cursor:pointer;padding:6px 10px;border-radius:8px;font-size:11px;font-family:inherit}
@@ -345,8 +346,17 @@ function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_
 function clearS(){ sessionStorage.clear(); }
 
 async function api(p){
-  var qs=new URLSearchParams(p).toString();
-  var r=await fetch(PROXY_URL+'?'+qs);
+  // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
+  // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
+  var hasBigPayload = p.photo_base64 && p.photo_base64.length > 1500;
+  var r;
+  if(hasBigPayload){
+    var body=new URLSearchParams(p).toString();
+    r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body});
+  } else {
+    var qs=new URLSearchParams(p).toString();
+    r=await fetch(PROXY_URL+'?'+qs);
+  }
   if(!r.ok) throw new Error('HTTP '+r.status);
   return r.json();
 }
@@ -427,12 +437,18 @@ function compressImage(file, cb){
     if(sbav) sbav.addEventListener('click',function(){ inp.click(); });
     inp.addEventListener('change',function(){
       var f=inp.files[0]; if(!f) return;
-      // Foto profil hanya ganti tampilan avatar (lokal), tidak disimpan ke Drive.
-      // Disimpan di sessionStorage supaya tetap muncul selama sesi login.
+      // Kompres <=1MB lalu simpan ke Drive (via POST) supaya tetap ada di login berikutnya.
+      av.innerHTML='<span class="spin" style="border-top-color:#fff;width:16px;height:16px"></span>';
       compressImage(f,function(dataUrl){
-        S.user.photo_url=dataUrl;
-        try{ var s=loadS(); if(s){ s.user=S.user; saveS(s.token,s.user);} }catch(e){}
-        updateProfileAvatar(dataUrl);
+        api({action:'saveProfilePhoto',token:S.token,photo_base64:dataUrl,filename:'profile.jpg'})
+          .then(function(r){
+            if(r&&r.ok){
+              S.user.photo_url=r.url;
+              try{ var s=loadS(); if(s){ s.user=S.user; saveS(s.token,s.user);} }catch(e){}
+              updateProfileAvatar(r.url);
+            } else { updateProfileAvatar(S.user.photo_url); alert('Gagal simpan foto profil: '+((r&&r.error)||'')); }
+          })
+          .catch(function(e){ updateProfileAvatar(S.user.photo_url); alert('Gagal simpan foto profil: '+e.message); });
       });
       inp.value='';
     });
@@ -694,49 +710,66 @@ async function buildMonthlyChart(store){
 // =========================================================
 function renderPerfOverview(c){
   var stores=['SOYASUKA_MOI','SOYASUKA_BXC'];
+  // Default rentang: 7 hari terakhir s/d hari ini
+  var end=S.today;
+  var d=new Date(S.today+'T00:00:00'); d.setDate(d.getDate()-6);
+  var start=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   c.innerHTML='<div class="perf-date">'+
   '<div style="font-size:13.5px;font-weight:700;color:var(--brown-soft)">Toko:</div>'+
   '<select id="po-store" onchange="loadPerfData()"><option value="">— Pilih Toko —</option>'+stores.map(function(s){return '<option value="'+s+'"'+(S.store===s?' selected':'')+'>'+s.replace('SOYASUKA_','')+'</option>';}).join('')+'</select>'+
-  '<div style="font-size:13.5px;font-weight:700;color:var(--brown-soft)">Tanggal:</div>'+
-  '<input type="date" id="po-date" value="'+S.today+'" onchange="loadPerfData()">'+
+  '<div style="font-size:13.5px;font-weight:700;color:var(--brown-soft)">Dari:</div>'+
+  '<input type="date" id="po-start" value="'+start+'" onchange="loadPerfData()">'+
+  '<div style="font-size:13.5px;font-weight:700;color:var(--brown-soft)">Sampai:</div>'+
+  '<input type="date" id="po-end" value="'+end+'" onchange="loadPerfData()">'+
   '</div>'+
-  '<div id="po-content"><div class="empty"><div class="ei">📊</div><div>Pilih toko dan tanggal</div></div></div>';
+  '<div id="po-content"><div class="empty"><div class="ei">📊</div><div>Pilih toko dan rentang tanggal</div></div></div>';
   if(S.store) loadPerfData();
 }
 
+function dateRangeList(start,end){
+  var out=[]; var d=new Date(start+'T00:00:00'); var e=new Date(end+'T00:00:00');
+  if(e<d){ var t=d; d=e; e=t; }
+  var guard=0;
+  while(d<=e && guard<400){
+    out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+    d.setDate(d.getDate()+1); guard++;
+  }
+  return out;
+}
 async function loadPerfData(){
   var store=document.getElementById('po-store')&&document.getElementById('po-store').value;
-  var date=document.getElementById('po-date')&&document.getElementById('po-date').value;
-  if(!store||!date){ document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei">📊</div><div>Pilih toko dan tanggal</div></div>'; return; }
+  var start=document.getElementById('po-start')&&document.getElementById('po-start').value;
+  var end=document.getElementById('po-end')&&document.getElementById('po-end').value;
+  if(!store||!start||!end){ document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei">📊</div><div>Pilih toko dan rentang tanggal</div></div>'; return; }
   document.getElementById('po-content').innerHTML=''+LOADING+'';
-  var sd=await loadStoreData(store,date);
-  if(!sd){ document.getElementById('po-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>Gagal memuat data</div></div>'; return; }
-
-  var rs=sd.reportSales; var sales=rs?Number(rs[9])||0:0; var txn=rs?Number(rs[10])||0:0;
-  var co=sd.checklistOpening||[]; var cc=sd.checklistClosing||[];
-  var coItems=co.filter(function(r){return r[1]&&r[1]!=='item';}); var coDone=coItems.filter(function(r){return r[2]==='done';}).length;
-  var ccItems=cc.filter(function(r){return r[1]&&r[1]!=='item';}); var ccDone=ccItems.filter(function(r){return r[2]==='done';}).length;
-  var wst=sd.wastageToday||[]; var isOwner=S.user.role==='Owner';
+  var dates=dateRangeList(start,end);
+  var totalSales=0, totalTxn=0, wstAll=[], daily=[], failed=0;
+  for(var i=0;i<dates.length;i++){
+    var sd=await loadStoreData(store,dates[i]);
+    if(!sd){ failed++; continue; }
+    var rs=sd.reportSales; var s=rs?Number(rs[9])||0:0; var t=rs?Number(rs[10])||0:0;
+    var w=sd.wastageToday||[];
+    totalSales+=s; totalTxn+=t;
+    w.forEach(function(row){ wstAll.push(row); });
+    daily.push({date:dates[i],sales:s,txn:t,wst:w.length});
+  }
+  var isOwner=S.user.role==='Owner';
+  var avg=daily.length?Math.round(totalSales/daily.length):0;
 
   document.getElementById('po-content').innerHTML=
   '<div class="perf-grid">'+
-  '<div class="perf-kpi dark" onclick="showSalesDetail('+JSON.stringify(rs||null).replace(/</g,'&lt;')+')" style="cursor:pointer">'+
-    '<div class="pk-label">Total Sales</div><div class="pk-val">'+fmtRp(sales)+'</div>'+
-    '<div class="pk-sub">'+txn+' transaksi</div><div class="clickable-hint">↗ klik detail</div></div>'+
-  '<div class="perf-kpi"><div class="pk-label">Checklist Opening</div><div class="pk-val">'+coDone+'/'+coItems.length+'</div></div>'+
-  '<div class="perf-kpi"><div class="pk-label">Checklist Closing</div><div class="pk-val">'+ccDone+'/'+ccItems.length+'</div></div>'+
-  '<div class="perf-kpi'+(wst.length>0?' dark':'')+'" onclick="showWastageDetail('+escJ(wst)+','+isOwner+')" style="cursor:pointer">'+
-    '<div class="pk-label">Wastage</div><div class="pk-val">'+wst.length+'</div>'+
+  '<div class="perf-kpi dark"><div class="pk-label">Total Sales</div><div class="pk-val">'+fmtRp(totalSales)+'</div>'+
+    '<div class="pk-sub">'+totalTxn+' transaksi · '+dates.length+' hari</div></div>'+
+  '<div class="perf-kpi"><div class="pk-label">Rata-rata / hari</div><div class="pk-val">'+fmtRp(avg)+'</div></div>'+
+  '<div class="perf-kpi'+(wstAll.length>0?' dark':'')+'" onclick="showWastageDetail('+escJ(wstAll)+','+isOwner+')" style="cursor:pointer">'+
+    '<div class="pk-label">Total Wastage</div><div class="pk-val">'+wstAll.length+'</div>'+
     '<div class="pk-sub">entri</div><div class="clickable-hint">↗ klik detail</div></div>'+
   '</div>'+
-  // Checklist detail
-  '<div class="sec">☀️ Opening</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Item</th><th>Status</th><th>Oleh</th></tr></thead><tbody>'+
-  coItems.map(function(r){return '<tr><td>'+r[1]+'</td><td><span class="tag '+(r[2]==='done'?'green':'red')+'">'+r[2]+'</span></td><td style="color:var(--brown-soft);font-size:12px">'+r[3]+'</td></tr>';}).join('')+
-  '</tbody></table></div>'+
-  '<div class="sec">🌙 Closing</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Item</th><th>Status</th><th>Oleh</th></tr></thead><tbody>'+
-  ccItems.map(function(r){return '<tr><td>'+r[1]+'</td><td><span class="tag '+(r[2]==='done'?'green':'red')+'">'+r[2]+'</span></td><td style="color:var(--brown-soft);font-size:12px">'+r[3]+'</td></tr>';}).join('')+
+  (failed?'<div style="font-size:12px;color:#b45309;margin:6px 0">⚠️ '+failed+' hari gagal dimuat</div>':'')+
+  // Rincian harian
+  '<div class="sec">📅 Rincian Harian</div>'+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">Wastage</th></tr></thead><tbody>'+
+  (daily.length?daily.map(function(d){return '<tr><td>'+d.date+'</td><td style="text-align:right">'+fmtRp(d.sales)+'</td><td style="text-align:right">'+d.txn+'</td><td style="text-align:right">'+d.wst+'</td></tr>';}).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--brown-soft)">Tidak ada data</td></tr>')+
   '</tbody></table></div>';
 }
 window.loadPerfData=loadPerfData;
@@ -907,7 +940,7 @@ async function loadCVData(){
   document.getElementById('cv-content').innerHTML='<div class="sec">☀️ Opening ('+co.filter(function(r){return r[2]==='done';}).length+'/'+co.length+')</div>'+mkTable(co)+'<div class="sec" style="margin-top:16px">🌙 Closing ('+cc.filter(function(r){return r[2]==='done';}).length+'/'+cc.length+')</div>'+mkTable(cc);
 }
 window.loadCVData=loadCVData;
-function fmtTime(s){if(!s)return '';try{return new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
+function fmtTime(s){if(!s)return '';if(/^\d{1,2}:\d{2}$/.test(String(s)))return s;try{return new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
 
 // =========================================================
 // WASTAGE (Staff input)
