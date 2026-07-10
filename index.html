@@ -400,7 +400,7 @@ function updateProfileAvatar(url){
   var sbav=document.getElementById('sb-av');
   var initial=(S.user&&S.user.display_name?S.user.display_name[0]:'?').toUpperCase();
   if(url){
-    var img='<img src="'+url+'" alt="foto profil" onerror="this.parentNode.textContent=\''+initial+'\'">';
+    var img='<img src="'+driveImg(url)+'" alt="foto profil" onerror="this.parentNode.textContent=\''+initial+'\'">';
     if(av) av.innerHTML=img;
     if(sbav) sbav.innerHTML=img;
   } else {
@@ -1043,7 +1043,8 @@ async function loadWV(){
       if(nom!=null){ totalNom+=nom; nomHtml='<div class="wlog-nom" style="color:var(--red);font-weight:700">'+fmtRp(nom)+'</div>'; }
       else { adaNomTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft);font-size:11px">– (tak ada di RECAP)</div>'; }
     }
-    var foto=r[7]?'<img src="'+r[7]+'" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex:none" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+r[7]+'\\\" style=\\\"max-width:100%\\\">\')">':'';
+    var fu=driveImg(r[7]);
+    var foto=r[7]?'<img src="'+fu+'" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex:none" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+fu+'\\\" style=\\\"max-width:100%\\\">\')">':'';
     return '<div class="wlog-item"><div class="wlog-dot"></div><div style="flex:1;min-width:0"><div class="wlog-name">'+r[1]+'</div><div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div></div>'+foto+'<div style="text-align:right;flex:none;margin-left:8px"><div style="font-weight:700;font-size:13px;white-space:nowrap">'+r[3]+' '+r[4]+'</div>'+nomHtml+'</div></div>';
   }).join('');
   var totalHtml=(isOwner&&wst.length)?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(totalNom)+'</span></div>'+(adaNomTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang tidak ditemukan di RECAP.</div>':''):'';
@@ -1214,7 +1215,7 @@ async function loadCekAbsensi(){
 window.loadCekAbsensi=loadCekAbsensi;
 function openAbsPhoto(url){
   if(!url){alert('Foto tidak tersedia');return;}
-  showPopup('Foto Absensi','<img src="'+url+'" style="max-width:100%;border-radius:10px">');
+  showPopup('Foto Absensi','<img src="'+driveImg(url)+'" style="max-width:100%;border-radius:10px">');
 }
 window.openAbsPhoto=openAbsPhoto;
 
