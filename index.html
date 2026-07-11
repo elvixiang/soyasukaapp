@@ -1318,66 +1318,48 @@ function renderResep(c){
     setTimeout(function(){ loadBaseData().then(function(){ if(S.baseData&&(S.baseData.cogsCalc||[]).length) renderResep(c); else c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; }); },400);
     return;
   }
-  // Struktur COGS CALC (kolom A KOSONG, data mulai kolom B):
-  //   B[1]=nama bahan / nama menu, C[2]=usage/yield qty, D[3]=unit, H[7]=cost
-  //   Baris kuning (主体/配料) = kategori → skip
-  //   Baris krem (SOYMILK 豆浆 dst) = judul resep → jadi judul section, TIDAK disimpan sbg bahan
-  //   Baris biru = hasil resep, ditandai kolom E[4]/C[2]=="Yield". Nama di B, yield qty di C, unit di D, cost di H.
   function isE(v){return v===''||v===null||v===undefined;}
   function num(v){var n=Number(v);return isNaN(n)?0:n;}
-  function isYieldRow(r){
-    return String(r[4]).trim().toLowerCase()==='yield' || String(r[2]).trim().toLowerCase()==='yield' || String(r[3]).trim().toLowerCase()==='yield';
-  }
-  var KATEGORI={'主体':1,'配料':1,'主題':1};
+  function rnd(v){return Math.round(num(v));}
+  function isYieldRow(r){return String(r[4]).trim().toLowerCase()==='yield'||String(r[2]).trim().toLowerCase()==='yield'||String(r[3]).trim().toLowerCase()==='yield';}
+  var KAT={'主体':1,'配料':1,'主題':1};
   var sections=[]; var cur=null;
   rows.forEach(function(r){
-    var b=r[1];
-    if(isE(b)) return;
+    var b=r[1]; if(isE(b))return;
     var bStr=String(b).trim();
-    // Kategori kuning → skip
-    if(KATEGORI[bStr]) return;
-    // Header 'Ingredient' (baris judul kolom) → skip
-    if(bStr.toLowerCase()==='ingredient') return;
+    if(KAT[bStr]||bStr.toLowerCase()==='ingredient')return;
     var yieldRow=isYieldRow(r);
-    // Judul resep (krem): kolom C..H kosong semua, bukan yield
-    var onlyName = isE(r[2])&&isE(r[3])&&isE(r[5])&&isE(r[6])&&isE(r[7]);
-    if(onlyName && !yieldRow){
-      cur={title:bStr, displayName:'', items:[], yieldQty:0, yieldUnit:'', cost:0};
-      sections.push(cur); return;
-    }
-    if(!cur){ cur={title:bStr, displayName:'', items:[], yieldQty:0, yieldUnit:'', cost:0}; sections.push(cur); }
-    if(yieldRow){
-      // Baris biru hasil resep
-      cur.displayName=bStr;
-      cur.yieldQty=num(r[2]);
-      cur.yieldUnit=String(r[3]||'');
-      cur.cost=num(r[7]);
-    } else {
-      // Bahan baku
-      cur.items.push({name:bStr, usage:num(r[2]), unit:String(r[3]||''), cost:num(r[7])});
-    }
+    var onlyName=isE(r[2])&&isE(r[3])&&isE(r[5])&&isE(r[6])&&isE(r[7]);
+    if(onlyName&&!yieldRow){ cur={title:bStr,displayName:'',items:[],yieldQty:0,yieldUnit:'',cost:0}; sections.push(cur); return; }
+    if(!cur){ cur={title:bStr,displayName:'',items:[],yieldQty:0,yieldUnit:'',cost:0}; sections.push(cur); }
+    if(yieldRow){ cur.displayName=bStr; cur.yieldQty=num(r[2]); cur.yieldUnit=String(r[3]||''); cur.cost=num(r[7]); }
+    else { cur.items.push({name:bStr,usage:num(r[2]),unit:String(r[3]||''),cost:num(r[7])}); }
   });
   sections=sections.filter(function(s){return s.items.length;});
   if(!sections.length){ c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; return; }
   var html='<div class="perf-date" style="margin-bottom:14px"><input type="text" id="resep-search" placeholder="🔍 Cari resep / bahan..." oninput="filterResep()" style="flex:1;min-width:160px;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;outline:none"></div><div id="resep-list">';
+  // colgroup lebar tetap → semua baris lurus
+  var COLG = isOwner
+    ? '<colgroup><col style="width:auto"><col style="width:90px"><col style="width:60px"><col style="width:110px"></colgroup>'
+    : '<colgroup><col style="width:auto"><col style="width:90px"><col style="width:60px"></colgroup>';
   sections.forEach(function(sec){
     var judul=sec.displayName||sec.title;
     var itemsHtml=sec.items.map(function(it){
-      var costCell=isOwner?'<td style="padding:8px 13px;text-align:right;color:var(--brown-soft);font-size:12px">'+(it.cost?fmtRp(it.cost):'–')+'</td>':'';
-      return '<tr><td class="ing" style="padding:8px 13px">'+it.name+'</td><td class="qty" style="padding:8px 13px;text-align:right;font-weight:700;color:var(--brown)">'+(it.usage||'')+'</td><td class="unit" style="padding:8px 13px;color:var(--brown-soft)">'+(it.unit||'')+'</td>'+costCell+'</tr>';
+      var costCell=isOwner?'<td style="padding:8px 13px;text-align:right;color:var(--brown-soft);font-size:12px;white-space:nowrap">'+(it.cost?fmtRp(rnd(it.cost)):'–')+'</td>':'';
+      return '<tr><td class="ing" style="padding:8px 13px">'+it.name+'</td><td style="padding:8px 13px;text-align:right;font-weight:700;color:var(--brown);font-variant-numeric:tabular-nums">'+(it.usage?rnd(it.usage):'')+'</td><td style="padding:8px 13px;color:var(--brown-soft)">'+(it.unit||'')+'</td>'+costCell+'</tr>';
     }).join('');
     var searchKey=(judul+' '+sec.items.map(function(i){return i.name;}).join(' ')).toLowerCase().replace(/"/g,'');
-    var yieldTxt=sec.yieldQty?('Hasil: '+sec.yieldQty+' '+sec.yieldUnit):'';
-    var costTxt=(isOwner&&sec.cost)?(' · Total cost 1 resep: '+fmtRp(sec.cost)):'';
+    var hasilTxt=sec.yieldQty?('Hasil: '+rnd(sec.yieldQty)+' '+sec.yieldUnit):'';
+    var costRight=(isOwner&&sec.cost)?('<span style="font-weight:700">Total cost 1 resep: '+fmtRp(rnd(sec.cost))+'</span>'):'';
     html+='<div class="resep-section" data-name="'+searchKey+'">'+
     '<div class="resep-title">'+judul+'</div>'+
-    '<table class="resep-tbl"><thead style="background:var(--surface2)"><tr>'+
+    '<table class="resep-tbl" style="table-layout:fixed;width:100%">'+COLG+'<thead style="background:var(--surface2)"><tr>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Bahan</td>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);text-align:right">Takaran</td>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Unit</td>'+
     (isOwner?'<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);text-align:right">Cost</td>':'')+
     '</tr></thead><tbody>'+itemsHtml+'</tbody></table>'+
-    (yieldTxt?'<div class="resep-yield"><span>'+yieldTxt+costTxt+'</span></div>':'')+
+    ((hasilTxt||costRight)?'<div class="resep-yield" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>'+hasilTxt+'</span>'+costRight+'</div>':'')+
     '</div>';
   });
   html+='</div>';
@@ -1429,7 +1411,7 @@ function renderForecasting(c){
     html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--gold);letter-spacing:1px;margin:14px 0 8px">'+cat+'</div>';
     bycat[cat].forEach(function(r){
       html+='<div class="fc-row"><div class="fc-name">'+r[2]+'<div class="fc-hint">'+fmtRp(r[8])+' / porsi</div></div>'+
-      '<input class="fc-inp" type="number" min="0" placeholder="0" data-name="'+r[2]+'" oninput="this.classList.toggle(\'filled\',!!+this.value);calcFC()"></div>';
+      '<input class="fc-inp" type="number" min="0" placeholder="0" data-name="'+r[2]+'" data-serving="'+(Number(r[6])||0)+'" data-unit="'+(r[4]||'')+'" oninput="this.classList.toggle(\'filled\',!!+this.value);calcFC()"></div>';
     });
   });
   html+='<button style="font-family:inherit;font-size:12.5px;color:var(--brown-soft);background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:8px 14px;cursor:pointer;margin-bottom:18px" onclick="document.querySelectorAll(\'.fc-inp\').forEach(function(i){i.value=\'\';i.classList.remove(\'filled\')});calcFC()">Reset</button>'+
@@ -1440,33 +1422,52 @@ function renderForecasting(c){
 
 function calcFC(){
   var inputs=document.querySelectorAll('.fc-inp');
-  var ingNeeds={}; var batchNeeds={}; var totalPorsi=0; var estRev=0;
+  var ingNeeds={}; var batchNeeds={}; var totalPorsi=0;
+  var noServing=[]; // menu tanpa serving size di RECAP kol G
+  var noRecipe=[];   // menu tanpa resep yield di COGS CALC
   inputs.forEach(function(inp){
     var n=Number(inp.value)||0; if(!n)return;
     totalPorsi+=n;
     var menuName=inp.dataset.name;
-    // find matching product in COGS CALC
-    var prod=null;
-    Object.keys(window._fcProducts||{}).forEach(function(k){if(k.toUpperCase().indexOf(menuName.toUpperCase())>=0||menuName.toUpperCase().indexOf(k.toUpperCase())>=0)prod=window._fcProducts[k];});
-    if(prod&&prod.yieldQty>0){
-      var batches=n/prod.yieldQty;
-      batchNeeds[menuName]={batches:batches.toFixed(2),yield:prod.yieldQty,yieldUnit:prod.yieldUnit};
-      prod.ingredients.forEach(function(it){if(!ingNeeds[it.name])ingNeeds[it.name]={qty:0,unit:it.unit};ingNeeds[it.name].qty+=it.qty*batches;});
-    }
+    var serving=Number(inp.dataset.serving)||0; // gram/ml per porsi (RECAP kol G)
+    var servUnit=inp.dataset.unit||'';
+    // cari resep di COGS CALC yg cocok
+    var prod=null, prodKey='';
+    Object.keys(window._fcProducts||{}).forEach(function(k){
+      if(k.toUpperCase().indexOf(menuName.toUpperCase())>=0||menuName.toUpperCase().indexOf(k.toUpperCase())>=0){prod=window._fcProducts[k];prodKey=k;}
+    });
+    if(!prod||!(prod.yieldQty>0)){ noRecipe.push(menuName); return; }
+    if(!(serving>0)){ noServing.push(menuName); return; }
+    // total bahan jadi dibutuhkan = porsi × serving per porsi
+    var totalNeed = n*serving;                 // mis. 200 porsi × 30g = 6000g
+    var batches = totalNeed/prod.yieldQty;      // 6000 / 1200 = 5 batch
+    batchNeeds[menuName]={batches:batches, yield:prod.yieldQty, yieldUnit:prod.yieldUnit, totalNeed:totalNeed, servUnit:servUnit};
+    // bahan baku mentah = usage per batch × jumlah batch
+    prod.ingredients.forEach(function(it){
+      if(!ingNeeds[it.name])ingNeeds[it.name]={qty:0,unit:it.unit};
+      ingNeeds[it.name].qty+=it.qty*batches;
+    });
   });
   var res=document.getElementById('fc-result'); if(!res)return;
   if(!totalPorsi){res.innerHTML='<div class="empty" style="padding:20px"><div class="ei">🧮</div><div>Isi porsi di atas</div></div>';return;}
   var ingList=Object.keys(ingNeeds).sort(function(a,b){return a.localeCompare(b);});
   var batchList=Object.keys(batchNeeds);
-  res.innerHTML=
-  '<div class="card" style="margin-bottom:14px"><div class="card-title">🛒 Kebutuhan Bahan Baku</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th>Kebutuhan</th><th>Unit</th></tr></thead><tbody>'+
-  ingList.map(function(k){return '<tr><td style="font-weight:600">'+k+'</td><td style="text-align:right;font-weight:700;color:var(--brown)">'+Math.ceil(ingNeeds[k].qty)+'</td><td style="color:var(--brown-soft)">'+ingNeeds[k].unit+'</td></tr>';}).join('')+
-  '</tbody></table></div></div>'+
-  '<div class="card"><div class="card-title">🔄 Berapa Kali Buat Resep</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Menu</th><th>Batch</th><th>Yield/Batch</th></tr></thead><tbody>'+
-  batchList.map(function(k){var b=batchNeeds[k];return '<tr><td style="font-weight:600">'+k+'</td><td style="text-align:right;font-weight:700;color:var(--brown)">'+b.batches+'x</td><td style="color:var(--brown-soft)">'+b.yield+' '+b.yieldUnit+'</td></tr>';}).join('')+
-  '</tbody></table></div></div>';
+  var warn='';
+  if(noRecipe.length||noServing.length){
+    warn='<div style="font-size:12px;color:var(--brown-soft);background:#FFF6E8;border:1px solid #F0DFC0;border-radius:10px;padding:10px 12px;margin-bottom:12px">';
+    if(noRecipe.length) warn+='⚠️ Belum ada resep (COGS CALC): '+noRecipe.join(', ')+'. ';
+    if(noServing.length) warn+='⚠️ Belum ada serving size (RECAP kol G): '+noServing.join(', ')+'.';
+    warn+='</div>';
+  }
+  res.innerHTML=warn+
+  (ingList.length?('<div class="card" style="margin-bottom:14px"><div class="card-title">🛒 Kebutuhan Bahan Baku</div>'+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:right">Kebutuhan</th><th>Unit</th></tr></thead><tbody>'+
+  ingList.map(function(k){return '<tr><td style="font-weight:600">'+k+'</td><td style="text-align:right;font-weight:700;color:var(--brown);font-variant-numeric:tabular-nums">'+Math.ceil(ingNeeds[k].qty).toLocaleString('id-ID')+'</td><td style="color:var(--brown-soft)">'+ingNeeds[k].unit+'</td></tr>';}).join('')+
+  '</tbody></table></div></div>'):'')+
+  (batchList.length?('<div class="card"><div class="card-title">🔄 Berapa Kali Buat Resep</div>'+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Menu</th><th style="text-align:right">Jumlah Batch</th><th style="text-align:right">Total Dibutuhkan</th></tr></thead><tbody>'+
+  batchList.map(function(k){var b=batchNeeds[k];var batchTxt=(b.batches>=10?Math.round(b.batches):(Math.round(b.batches*10)/10));return '<tr><td style="font-weight:600">'+k+'</td><td style="text-align:right;font-weight:700;color:var(--brown)">'+batchTxt+'x</td><td style="text-align:right;color:var(--brown-soft);font-size:12px">'+Math.ceil(b.totalNeed).toLocaleString('id-ID')+' '+b.servUnit+'<br><span style="opacity:.7">(1 batch = '+Math.round(b.yield).toLocaleString('id-ID')+' '+b.yieldUnit+')</span></td></tr>';}).join('')+
+  '</tbody></table></div></div>'):'');
 }
 window.calcFC=calcFC;
 
