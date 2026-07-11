@@ -1312,59 +1312,73 @@ window.filterMenu=filterMenu;
 // =========================================================
 function renderResep(c){
   var bd=S.baseData; var rows=(bd&&bd.cogsCalc)||[];
+  var isOwner=S.user.role==='Owner';
   if(!rows.length){
     c.innerHTML=LOADING;
     setTimeout(function(){ loadBaseData().then(function(){ if(S.baseData&&(S.baseData.cogsCalc||[]).length) renderResep(c); else c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; }); },400);
     return;
   }
-  // Struktur COGS CALC:
-  // A=nama, B=usage, C=unit, D=full_pax, E=unit2, F=price, G=cost
-  // - Baris "主体"/"配料" (col A ada, col B..G kosong semua) = divider besar, dilewati
-  // - Baris produk header: col A ada, col B kosong, col C bukan "Yield" → mulai section baru
-  // - Baris bahan: col A + col B(usage) ada
-  // - Baris yield: col C == "Yield" (menutup produk); col A=nama, D=yield qty, G=cost/unit
-  function isEmpty(v){ return v===''||v===null||v===undefined; }
-  function num(v){ var n=Number(v); return isNaN(n)?0:n; }
+  // Struktur COGS CALC (kolom A KOSONG, data mulai kolom B):
+  //   B[1]=nama bahan / nama menu, C[2]=usage/yield qty, D[3]=unit, H[7]=cost
+  //   Baris kuning (主体/配料) = kategori → skip
+  //   Baris krem (SOYMILK 豆浆 dst) = judul resep → jadi judul section, TIDAK disimpan sbg bahan
+  //   Baris biru = hasil resep, ditandai kolom E[4]/C[2]=="Yield". Nama di B, yield qty di C, unit di D, cost di H.
+  function isE(v){return v===''||v===null||v===undefined;}
+  function num(v){var n=Number(v);return isNaN(n)?0:n;}
+  function isYieldRow(r){
+    return String(r[4]).trim().toLowerCase()==='yield' || String(r[2]).trim().toLowerCase()==='yield' || String(r[3]).trim().toLowerCase()==='yield';
+  }
+  var KATEGORI={'主体':1,'配料':1,'主題':1};
   var sections=[]; var cur=null;
   rows.forEach(function(r){
-    var a=r[0], b=r[1], cc=r[2];
-    if(isEmpty(a)) return;
-    var aStr=String(a).trim();
-    var isYield=String(cc).trim().toLowerCase()==='yield';
-    // Divider besar: hanya kolom A terisi, semua kolom lain kosong, DAN bukan yield
-    var onlyA = isEmpty(b)&&isEmpty(cc)&&isEmpty(r[3])&&isEmpty(r[4])&&isEmpty(r[5]);
-    // Divider chinese (主体/配料) atau label section besar — lewati (tetap render sbg heading kecil)
-    if(onlyA && !isYield){
-      // Bisa jadi divider besar ATAU produk header tanpa data.
-      // Perlakukan sbg produk header baru.
-      cur={title:aStr,items:[],yields:[]}; sections.push(cur); return;
+    var b=r[1];
+    if(isE(b)) return;
+    var bStr=String(b).trim();
+    // Kategori kuning → skip
+    if(KATEGORI[bStr]) return;
+    // Header 'Ingredient' (baris judul kolom) → skip
+    if(bStr.toLowerCase()==='ingredient') return;
+    var yieldRow=isYieldRow(r);
+    // Judul resep (krem): kolom C..H kosong semua, bukan yield
+    var onlyName = isE(r[2])&&isE(r[3])&&isE(r[5])&&isE(r[6])&&isE(r[7]);
+    if(onlyName && !yieldRow){
+      cur={title:bStr, displayName:'', items:[], yieldQty:0, yieldUnit:'', cost:0};
+      sections.push(cur); return;
     }
-    if(!cur){ cur={title:aStr,items:[],yields:[]}; sections.push(cur); }
-    if(isYield){
-      cur.yields.push({name:aStr,qty:num(r[3])||num(b),unit:r[4]||cc,cost:num(r[6])});
-    } else if(!isEmpty(b)){
-      cur.items.push({name:aStr,usage:num(b),unit:cc,cost:num(r[6])});
+    if(!cur){ cur={title:bStr, displayName:'', items:[], yieldQty:0, yieldUnit:'', cost:0}; sections.push(cur); }
+    if(yieldRow){
+      // Baris biru hasil resep
+      cur.displayName=bStr;
+      cur.yieldQty=num(r[2]);
+      cur.yieldUnit=String(r[3]||'');
+      cur.cost=num(r[7]);
+    } else {
+      // Bahan baku
+      cur.items.push({name:bStr, usage:num(r[2]), unit:String(r[3]||''), cost:num(r[7])});
     }
   });
-  // Buang section tanpa bahan (divider besar yg nyasar)
-  sections=sections.filter(function(s){return s.items.length||s.yields.length;});
+  sections=sections.filter(function(s){return s.items.length;});
   if(!sections.length){ c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; return; }
-  // Search bar
   var html='<div class="perf-date" style="margin-bottom:14px"><input type="text" id="resep-search" placeholder="🔍 Cari resep / bahan..." oninput="filterResep()" style="flex:1;min-width:160px;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;outline:none"></div><div id="resep-list">';
   sections.forEach(function(sec){
+    var judul=sec.displayName||sec.title;
     var itemsHtml=sec.items.map(function(it){
-      return '<tr><td class="ing" style="padding:8px 13px">'+it.name+'</td><td class="qty" style="padding:8px 13px;text-align:right;font-weight:700;color:var(--brown)">'+(it.usage||'')+'</td><td class="unit" style="padding:8px 13px;color:var(--brown-soft)">'+(it.unit||'')+'</td></tr>';
+      var costCell=isOwner?'<td style="padding:8px 13px;text-align:right;color:var(--brown-soft);font-size:12px">'+(it.cost?fmtRp(it.cost):'–')+'</td>':'';
+      return '<tr><td class="ing" style="padding:8px 13px">'+it.name+'</td><td class="qty" style="padding:8px 13px;text-align:right;font-weight:700;color:var(--brown)">'+(it.usage||'')+'</td><td class="unit" style="padding:8px 13px;color:var(--brown-soft)">'+(it.unit||'')+'</td>'+costCell+'</tr>';
     }).join('');
-    var yieldHtml=sec.yields.map(function(y){
-      return '<div class="resep-yield"><span>Hasil (Yield): '+y.qty+' '+(y.unit||'')+'</span></div>';
-    }).join('');
-    html+='<div class="resep-section" data-name="'+(sec.title+' '+sec.items.map(function(i){return i.name;}).join(' ')).toLowerCase().replace(/"/g,'')+'">'+
-    '<div class="resep-title">'+sec.title+'</div>'+
+    var searchKey=(judul+' '+sec.items.map(function(i){return i.name;}).join(' ')).toLowerCase().replace(/"/g,'');
+    var yieldTxt=sec.yieldQty?('Hasil: '+sec.yieldQty+' '+sec.yieldUnit):'';
+    var costTxt=(isOwner&&sec.cost)?(' · Total cost 1 resep: '+fmtRp(sec.cost)):'';
+    html+='<div class="resep-section" data-name="'+searchKey+'">'+
+    '<div class="resep-title">'+judul+'</div>'+
     '<table class="resep-tbl"><thead style="background:var(--surface2)"><tr>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Bahan</td>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);text-align:right">Takaran</td>'+
     '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Unit</td>'+
-    '</tr></thead><tbody>'+itemsHtml+'</tbody></table>'+yieldHtml+'</div>';
+    (isOwner?'<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);text-align:right">Cost</td>':'')+
+    '</tr></thead><tbody>'+itemsHtml+'</tbody></table>'+
+    (yieldTxt?'<div class="resep-yield"><span>'+yieldTxt+costTxt+'</span></div>':'')+
+    '</div>';
   });
   html+='</div>';
   c.innerHTML=html;
@@ -1385,20 +1399,23 @@ function renderForecasting(c){
   var recapRows=(bd&&bd.recap)||[];
   if(!rows.length||!recapRows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
 
-  // Build ingredient usage map from COGS CALC
-  // A=nama, B=usage, C=unit, D=full_pax, E=unit2, F=price, G=cost. Yield row: C=="Yield", qty di D(idx3).
+  // Struktur COGS CALC (kolom A KOSONG): B=nama, C=usage/yield qty, D=unit, E bisa 'Yield', H=cost
   function isE(v){return v===''||v===null||v===undefined;}
   function n2(v){var n=Number(v);return isNaN(n)?0:n;}
+  function isYieldRow(r){return String(r[4]).trim().toLowerCase()==='yield'||String(r[2]).trim().toLowerCase()==='yield'||String(r[3]).trim().toLowerCase()==='yield';}
+  var KAT={'主体':1,'配料':1,'主題':1};
   var products={}; var curProd=null;
   rows.forEach(function(r){
-    var a=r[0];
-    if(isE(a))return;
-    var isYield=String(r[2]).trim().toLowerCase()==='yield';
-    var onlyA=isE(r[1])&&isE(r[2])&&isE(r[3])&&isE(r[4])&&isE(r[5]);
-    if(onlyA&&!isYield){ curProd={title:String(a).trim(),ingredients:[],yieldQty:0,yieldUnit:''}; products[curProd.title]=curProd; return; }
+    var b=r[1];
+    if(isE(b))return;
+    var bStr=String(b).trim();
+    if(KAT[bStr]||bStr.toLowerCase()==='ingredient')return;
+    var yieldRow=isYieldRow(r);
+    var onlyName=isE(r[2])&&isE(r[3])&&isE(r[5])&&isE(r[6])&&isE(r[7]);
+    if(onlyName&&!yieldRow){ curProd={title:bStr,displayName:bStr,ingredients:[],yieldQty:0,yieldUnit:''}; products[bStr]=curProd; return; }
     if(!curProd)return;
-    if(isYield){ curProd.yieldQty=n2(r[3])||n2(r[1]); curProd.yieldUnit=String(r[4]||r[2]||''); }
-    else if(!isE(r[1])){ curProd.ingredients.push({name:String(a).trim(),qty:n2(r[1]),unit:String(r[2]||'')}); }
+    if(yieldRow){ curProd.displayName=bStr; curProd.yieldQty=n2(r[2]); curProd.yieldUnit=String(r[3]||''); products[bStr]=curProd; }
+    else { curProd.ingredients.push({name:bStr,qty:n2(r[2]),unit:String(r[3]||'')}); }
   });
 
   // Build menu list from RECAP
