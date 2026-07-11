@@ -1317,32 +1317,65 @@ function renderResep(c){
     setTimeout(function(){ loadBaseData().then(function(){ if(S.baseData&&(S.baseData.cogsCalc||[]).length) renderResep(c); else c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; }); },400);
     return;
   }
-  // Parse resep dari COGS CALC: section headers (col A, no B), ingredients (col A,B,C,D,E), yield rows
-  var sections=[]; var curSection=null;
+  // Struktur COGS CALC:
+  // A=nama, B=usage, C=unit, D=full_pax, E=unit2, F=price, G=cost
+  // - Baris "主体"/"配料" (col A ada, col B..G kosong semua) = divider besar, dilewati
+  // - Baris produk header: col A ada, col B kosong, col C bukan "Yield" → mulai section baru
+  // - Baris bahan: col A + col B(usage) ada
+  // - Baris yield: col C == "Yield" (menutup produk); col A=nama, D=yield qty, G=cost/unit
+  function isEmpty(v){ return v===''||v===null||v===undefined; }
+  function num(v){ var n=Number(v); return isNaN(n)?0:n; }
+  var sections=[]; var cur=null;
   rows.forEach(function(r){
-    if(!r[0]&&!r[1])return;
-    var isYield=String(r[2]).toLowerCase()==='yield'||String(r[1]).toLowerCase()==='yield';
-    var isHeader=r[0]&&!r[1]&&!r[2]; // section title
-    var isSubHeader=r[0]&&!r[1]&&r[2]; // sub-section
-    if(isHeader&&String(r[0]).length>2){
-      curSection={title:String(r[0]),items:[],yields:[]};sections.push(curSection);return;
+    var a=r[0], b=r[1], cc=r[2];
+    if(isEmpty(a)) return;
+    var aStr=String(a).trim();
+    var isYield=String(cc).trim().toLowerCase()==='yield';
+    // Divider besar: hanya kolom A terisi, semua kolom lain kosong, DAN bukan yield
+    var onlyA = isEmpty(b)&&isEmpty(cc)&&isEmpty(r[3])&&isEmpty(r[4])&&isEmpty(r[5]);
+    // Divider chinese (主体/配料) atau label section besar — lewati (tetap render sbg heading kecil)
+    if(onlyA && !isYield){
+      // Bisa jadi divider besar ATAU produk header tanpa data.
+      // Perlakukan sbg produk header baru.
+      cur={title:aStr,items:[],yields:[]}; sections.push(cur); return;
     }
-    if(!curSection)return;
-    if(isYield){ curSection.yields.push({name:r[0],qty:r[1],unit:r[2],price:r[4],cost:r[5]}); }
-    else if(r[0]&&r[1]){ curSection.items.push({name:r[0],qty:r[1],unit:r[2],price:r[4],cost:r[5]}); }
+    if(!cur){ cur={title:aStr,items:[],yields:[]}; sections.push(cur); }
+    if(isYield){
+      cur.yields.push({name:aStr,qty:num(r[3])||num(b),unit:r[4]||cc,cost:num(r[6])});
+    } else if(!isEmpty(b)){
+      cur.items.push({name:aStr,usage:num(b),unit:cc,cost:num(r[6])});
+    }
   });
-  var html='';
+  // Buang section tanpa bahan (divider besar yg nyasar)
+  sections=sections.filter(function(s){return s.items.length||s.yields.length;});
+  if(!sections.length){ c.innerHTML='<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>'; return; }
+  // Search bar
+  var html='<div class="perf-date" style="margin-bottom:14px"><input type="text" id="resep-search" placeholder="🔍 Cari resep / bahan..." oninput="filterResep()" style="flex:1;min-width:160px;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;outline:none"></div><div id="resep-list">';
   sections.forEach(function(sec){
-    if(!sec.items.length&&!sec.yields.length)return;
-    html+='<div class="resep-section"><div class="resep-title">'+sec.title+'</div>'+
-    '<table class="resep-tbl">'+
-    '<thead style="background:var(--surface2)"><tr><td class="ing" style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Bahan</td><td class="qty" style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Qty</td><td class="unit" style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Unit</td><td class="qty" style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Cost</td></tr></thead>'+
-    '<tbody>'+sec.items.map(function(it){return '<tr><td class="ing">'+it.name+'</td><td class="qty">'+it.qty+'</td><td class="unit">'+it.unit+'</td><td class="qty">'+fmtRp(it.cost)+'</td></tr>';}).join('')+'</tbody></table>'+
-    sec.yields.map(function(y){return '<div class="resep-yield"><span>'+y.name+' → Yield: '+y.qty+' '+y.unit+'</span><span style="font-weight:700">'+fmtRp(y.cost)+' / '+y.unit+'</span></div>';}).join('')+
-    '</div>';
+    var itemsHtml=sec.items.map(function(it){
+      return '<tr><td class="ing" style="padding:8px 13px">'+it.name+'</td><td class="qty" style="padding:8px 13px;text-align:right;font-weight:700;color:var(--brown)">'+(it.usage||'')+'</td><td class="unit" style="padding:8px 13px;color:var(--brown-soft)">'+(it.unit||'')+'</td></tr>';
+    }).join('');
+    var yieldHtml=sec.yields.map(function(y){
+      return '<div class="resep-yield"><span>Hasil (Yield): '+y.qty+' '+(y.unit||'')+'</span></div>';
+    }).join('');
+    html+='<div class="resep-section" data-name="'+(sec.title+' '+sec.items.map(function(i){return i.name;}).join(' ')).toLowerCase().replace(/"/g,'')+'">'+
+    '<div class="resep-title">'+sec.title+'</div>'+
+    '<table class="resep-tbl"><thead style="background:var(--surface2)"><tr>'+
+    '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Bahan</td>'+
+    '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);text-align:right">Takaran</td>'+
+    '<td style="padding:7px 13px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft)">Unit</td>'+
+    '</tr></thead><tbody>'+itemsHtml+'</tbody></table>'+yieldHtml+'</div>';
   });
-  c.innerHTML=html||'<div class="empty"><div class="ei">📋</div><div>Data resep tidak tersedia</div></div>';
+  html+='</div>';
+  c.innerHTML=html;
 }
+function filterResep(){
+  var q=(document.getElementById('resep-search')||{value:''}).value.trim().toLowerCase();
+  document.querySelectorAll('#resep-list .resep-section').forEach(function(el){
+    el.style.display=(!q||el.dataset.name.indexOf(q)>=0)?'':'none';
+  });
+}
+window.filterResep=filterResep;
 
 // =========================================================
 // FORECASTING (Kalkulator Prep)
@@ -1353,15 +1386,19 @@ function renderForecasting(c){
   if(!rows.length||!recapRows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
 
   // Build ingredient usage map from COGS CALC
-  // Section = product, ingredients = usage per batch, yield = batch output
+  // A=nama, B=usage, C=unit, D=full_pax, E=unit2, F=price, G=cost. Yield row: C=="Yield", qty di D(idx3).
+  function isE(v){return v===''||v===null||v===undefined;}
+  function n2(v){var n=Number(v);return isNaN(n)?0:n;}
   var products={}; var curProd=null;
   rows.forEach(function(r){
-    if(!r[0]&&!r[1])return;
-    var isYield=String(r[2]).toLowerCase()==='yield';
-    if(r[0]&&!r[1]&&String(r[0]).length>2){curProd={title:String(r[0]),ingredients:[],yieldQty:0,yieldUnit:''};products[r[0]]=curProd;return;}
+    var a=r[0];
+    if(isE(a))return;
+    var isYield=String(r[2]).trim().toLowerCase()==='yield';
+    var onlyA=isE(r[1])&&isE(r[2])&&isE(r[3])&&isE(r[4])&&isE(r[5]);
+    if(onlyA&&!isYield){ curProd={title:String(a).trim(),ingredients:[],yieldQty:0,yieldUnit:''}; products[curProd.title]=curProd; return; }
     if(!curProd)return;
-    if(isYield){curProd.yieldQty=Number(r[1])||0;curProd.yieldUnit=String(r[2]);}
-    else if(r[0]&&r[1]&&r[0]!=='Ingredient'){curProd.ingredients.push({name:String(r[0]),qty:Number(r[1])||0,unit:String(r[2])});}
+    if(isYield){ curProd.yieldQty=n2(r[3])||n2(r[1]); curProd.yieldUnit=String(r[4]||r[2]||''); }
+    else if(!isE(r[1])){ curProd.ingredients.push({name:String(a).trim(),qty:n2(r[1]),unit:String(r[2]||'')}); }
   });
 
   // Build menu list from RECAP
