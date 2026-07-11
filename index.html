@@ -726,6 +726,10 @@ function renderPerfOverview(c){
   if(S.store) loadPerfData();
 }
 
+var PERF_WST=[];
+function openPerfWastage(){
+  showWastageDetail(PERF_WST, S.user.role==='Owner');
+}
 function dateRangeList(start,end){
   var out=[]; var d=new Date(start+'T00:00:00'); var e=new Date(end+'T00:00:00');
   if(e<d){ var t=d; d=e; e=t; }
@@ -744,32 +748,47 @@ async function loadPerfData(){
   document.getElementById('po-content').innerHTML=''+LOADING+'';
   var dates=dateRangeList(start,end);
   var totalSales=0, totalTxn=0, wstAll=[], daily=[], failed=0;
-  for(var i=0;i<dates.length;i++){
-    var sd=await loadStoreData(store,dates[i]);
-    if(!sd){ failed++; continue; }
+  // Ambil semua hari secara PARALEL (bukan antri satu-satu) supaya jauh lebih cepat.
+  var results=await Promise.all(dates.map(function(dt){
+    return loadStoreData(store,dt).then(function(sd){return {dt:dt,sd:sd};}).catch(function(){return {dt:dt,sd:null};});
+  }));
+  results.forEach(function(x){
+    var sd=x.sd;
+    if(!sd){ failed++; return; }
     var rs=sd.reportSales; var s=rs?Number(rs[9])||0:0; var t=rs?Number(rs[10])||0:0;
     var w=sd.wastageToday||[];
     totalSales+=s; totalTxn+=t;
     w.forEach(function(row){ wstAll.push(row); });
-    daily.push({date:dates[i],sales:s,txn:t,wst:w.length});
-  }
+    var nom=0;
+    w.forEach(function(row){ var n=wastageNominal(row[1],row[3]); if(n!==null) nom+=n; });
+    daily.push({date:x.dt,sales:s,txn:t,wst:w.length,wstNom:nom});
+  });
+  daily.sort(function(a,b){return a.date<b.date?-1:1;});
   var isOwner=S.user.role==='Owner';
   var avg=daily.length?Math.round(totalSales/daily.length):0;
+  // Simpan di global supaya onclick tak perlu menaruh JSON besar di atribut HTML
+  // (JSON besar/berkarakter khusus bikin onclick rusak diam-diam).
+  PERF_WST=wstAll;
+  var totalWstNom=0;
+  daily.forEach(function(d){ totalWstNom+=d.wstNom||0; });
 
   document.getElementById('po-content').innerHTML=
   '<div class="perf-grid">'+
   '<div class="perf-kpi dark"><div class="pk-label">Total Sales</div><div class="pk-val">'+fmtRp(totalSales)+'</div>'+
     '<div class="pk-sub">'+totalTxn+' transaksi · '+dates.length+' hari</div></div>'+
   '<div class="perf-kpi"><div class="pk-label">Rata-rata / hari</div><div class="pk-val">'+fmtRp(avg)+'</div></div>'+
-  '<div class="perf-kpi'+(wstAll.length>0?' dark':'')+'" onclick="showWastageDetail('+escJ(wstAll)+','+isOwner+')" style="cursor:pointer">'+
-    '<div class="pk-label">Total Wastage</div><div class="pk-val">'+wstAll.length+'</div>'+
-    '<div class="pk-sub">entri</div><div class="clickable-hint">↗ klik detail</div></div>'+
+  '<div class="perf-kpi'+(wstAll.length>0?' dark':'')+'" onclick="openPerfWastage()" style="cursor:pointer">'+
+    '<div class="pk-label">Total Wastage</div><div class="pk-val">'+(isOwner?fmtRp(totalWstNom):String(wstAll.length))+'</div>'+
+    '<div class="pk-sub">'+wstAll.length+' entri</div><div class="clickable-hint">↗ klik detail</div></div>'+
   '</div>'+
   (failed?'<div style="font-size:12px;color:#b45309;margin:6px 0">⚠️ '+failed+' hari gagal dimuat</div>':'')+
   // Rincian harian
   '<div class="sec">📅 Rincian Harian</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">Wastage</th></tr></thead><tbody>'+
-  (daily.length?daily.map(function(d){return '<tr><td>'+d.date+'</td><td style="text-align:right">'+fmtRp(d.sales)+'</td><td style="text-align:right">'+d.txn+'</td><td style="text-align:right">'+d.wst+'</td></tr>';}).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--brown-soft)">Tidak ada data</td></tr>')+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">'+(isOwner?'Wastage (Rp)':'Wastage')+'</th></tr></thead><tbody>'+
+  (daily.length?daily.map(function(d){
+    var wcell=isOwner?(d.wst?fmtRp(d.wstNom||0):'Rp 0'):String(d.wst);
+    return '<tr><td>'+d.date+'</td><td style="text-align:right">'+fmtRp(d.sales)+'</td><td style="text-align:right">'+d.txn+'</td><td style="text-align:right">'+wcell+'</td></tr>';
+  }).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--brown-soft)">Tidak ada data</td></tr>')+
   '</tbody></table></div>';
 }
 window.loadPerfData=loadPerfData;
