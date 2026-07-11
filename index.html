@@ -348,7 +348,7 @@ function clearS(){ sessionStorage.clear(); }
 async function api(p){
   // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
   // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
-  var hasBigPayload = p.photo_base64 && p.photo_base64.length > 1500;
+  var hasBigPayload = (p.photo_base64 && p.photo_base64.length > 1500) || (p.items && p.items.length > 1500) || (p.pesan && p.pesan.length > 1500);
   var r;
   if(hasBigPayload){
     var body=new URLSearchParams(p).toString();
@@ -468,6 +468,7 @@ var NAV_DEFS = {
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
+    {id:'laporan',ico:'📮',lbl:'Laporan',sec:'Lainnya'},
   ],
   AM:[
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
@@ -489,6 +490,7 @@ var NAV_DEFS = {
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
+    {id:'laporan-view',ico:'📮',lbl:'Laporan Masuk',sec:'Lainnya'},
   ]
 };
 
@@ -507,7 +509,7 @@ function buildNav(){
 
 function navigateTo(id){
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -547,6 +549,8 @@ async function renderPage(id){
     case 'resep': renderResep(c); break;
     case 'forecasting': renderForecasting(c); break;
     case 'cogs': renderCogs(c); break;
+    case 'laporan': renderLaporan(c); break;
+    case 'laporan-view': renderLaporanView(c); break;
     default: c.innerHTML='<div class="empty"><div class="ei">🔧</div><div>Halaman belum tersedia</div></div>';
   }
 }
@@ -669,18 +673,20 @@ async function buildMonthlyChart(store){
   if(box) box.innerHTML='<div style="padding:14px">'+LOADING+'</div>';
   if(sec) sec.style.display='';
   var now=new Date(Date.now()+7*3600000);
-  var y=now.getFullYear(); var m=now.getMonth(); var today=now.getDate();
-  var days=[];
-  for(var d=1;d<=today;d++){
-    var ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-    days.push(ds);
-  }
-  // ambil data tiap hari (paralel)
-  var results=await Promise.all(days.map(function(ds){return loadStoreData(store,ds).catch(function(){return null;});}));
-  var data=results.map(function(sd,i){
-    var rs=sd&&sd.reportSales; 
-    return {day:i+1,sales:rs?Number(rs[9])||0:0,txn:rs?Number(rs[10])||0:0};
+  var y=now.getFullYear(); var mo=now.getMonth(); var today=now.getDate();
+  // Satu panggilan saja → ambil array monthly dari backend
+  var sd=await loadStoreData(store);
+  var monthly=(sd&&sd.monthly)||[];
+  var byDay={};
+  monthly.forEach(function(r){
+    var dd=parseInt(String(r.date).substring(8,10),10);
+    if(dd) byDay[dd]={sales:Number(r.sales)||0,txn:Number(r.txn)||0};
   });
+  var data=[];
+  for(var d=1;d<=today;d++){
+    var v=byDay[d]||{sales:0,txn:0};
+    data.push({day:d,sales:v.sales,txn:v.txn});
+  }
   var maxSales=Math.max(1,Math.max.apply(null,data.map(function(x){return x.sales;})));
   var totalSales=data.reduce(function(a,x){return a+x.sales;},0);
   var totalTxn=data.reduce(function(a,x){return a+x.txn;},0);
@@ -689,20 +695,18 @@ async function buildMonthlyChart(store){
     var isToday=x.day===today;
     return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:14px">'+
       '<div style="width:100%;background:var(--surface2);border-radius:4px 4px 0 0;height:110px;display:flex;align-items:flex-end;overflow:hidden">'+
-        '<div title="Tgl '+x.day+': '+fmtRp(x.sales)+' · '+x.txn+' trx" style="width:100%;background:'+(isToday?'var(--gold)':'var(--brown-deep)')+';height:'+h+'%;border-radius:4px 4px 0 0;transition:height .3s"></div>'+
+      '<div title="Tgl '+x.day+': '+fmtRp(x.sales)+' · '+x.txn+' txn" style="width:100%;background:'+(isToday?'var(--gold)':'var(--brown)')+';height:'+Math.max(h,x.sales>0?4:0)+'%;border-radius:4px 4px 0 0;transition:height .4s"></div>'+
       '</div>'+
       '<div style="font-size:9px;color:var(--brown-soft)">'+x.day+'</div>'+
-    '</div>';
+      '</div>';
   }).join('');
   if(box) box.innerHTML=
-    '<div class="card" style="margin-bottom:18px">'+
-      '<div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:12.5px">'+
-        '<div><span style="color:var(--brown-soft)">Total Sales MTD</span><br><b style="font-size:15px">'+fmtRp(totalSales)+'</b></div>'+
-        '<div style="text-align:right"><span style="color:var(--brown-soft)">Total Transaksi MTD</span><br><b style="font-size:15px">'+totalTxn+'</b></div>'+
-      '</div>'+
-      '<div style="display:flex;align-items:flex-end;gap:2px;padding-top:6px">'+bars+'</div>'+
-      '<div style="font-size:10.5px;color:var(--brown-soft);margin-top:8px;text-align:center">Tinggi batang = sales harian · batang emas = hari ini</div>'+
-    '</div>';
+    '<div style="display:flex;justify-content:space-between;margin-bottom:10px">'+
+    '<div><div style="font-size:11px;color:var(--brown-soft)">Total Sales MTD</div><div style="font-size:18px;font-weight:700;color:var(--brown-deep)">'+fmtRp(totalSales)+'</div></div>'+
+    '<div style="text-align:right"><div style="font-size:11px;color:var(--brown-soft)">Total Transaksi MTD</div><div style="font-size:18px;font-weight:700;color:var(--brown-deep)">'+totalTxn.toLocaleString('id-ID')+'</div></div>'+
+    '</div>'+
+    '<div style="display:flex;align-items:flex-end;gap:3px;padding-top:6px">'+bars+'</div>'+
+    '<div style="text-align:center;font-size:10.5px;color:var(--brown-soft);margin-top:8px">Tinggi batang = sales harian · batang emas = hari ini</div>';
 }
 
 // =========================================================
@@ -842,7 +846,7 @@ async function renderReportSales(c){
   c.innerHTML='<div class="card">'+
   '<div class="card-title">💰 Report Sales — '+S.store.replace('SOYASUKA_','')+'</div>'+
   '<div class="form-grid">'+
-  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="rs-date" value="'+S.today+'"></div>'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="rs-date" value="'+S.today+'" readonly title="Tanggal otomatis hari ini"></div>'+
   '<div class="fg"><label>QRIS BCA (Rp)</label><input class="fi2" type="number" id="rs-qris" placeholder="0" oninput="calcRS()"></div>'+
   '<div class="fg"><label>Transfer BCA (Rp)</label><input class="fi2" type="number" id="rs-bca" placeholder="0" oninput="calcRS()"></div>'+
   '<div class="fg"><label>Credit Card (Rp)</label><input class="fi2" type="number" id="rs-cc" placeholder="0" oninput="calcRS()"></div>'+
@@ -974,7 +978,7 @@ async function renderWastage(c){
   c.innerHTML='<div class="card">'+
   '<div class="card-title">🗑️ Input Wastage</div>'+
   '<div class="form-grid">'+
-  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="wst-date" value="'+S.today+'"></div>'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="wst-date" value="'+S.today+'" readonly title="Tanggal otomatis hari ini"></div>'+
   '<div class="fg"><label>Bahan / Menu</label><select class="fi2" id="wst-item" onchange="fillUnit()">'+ingOpts+'</select></div>'+
   '<div class="fg"><label>Jumlah</label><input class="fi2" type="number" id="wst-qty" placeholder="0"></div>'+
   '<div class="fg"><label>Satuan</label><input class="fi2" type="text" id="wst-unit" placeholder="–" readonly></div>'+
@@ -1121,6 +1125,38 @@ window.saveSO=saveSO;
 var absPhotos={ci:null,co:null};
 async function renderAbsensi(c){
   if(!ensureStore(c)) return;
+  c.innerHTML=LOADING;
+  var sd=await loadStoreData(S.store);
+  var abs=(sd&&sd.absensiToday)||null;
+  var ciDone=abs&&abs.clock_in_time;
+  var coDone=abs&&abs.clock_out_time;
+  absPhotos={ci:null,co:null};
+  function slot(type){
+    var done=type==='ci'?ciDone:coDone;
+    var url=abs?(type==='ci'?abs.clock_in_url:abs.clock_out_url):'';
+    var tm=abs?(type==='ci'?abs.clock_in_time:abs.clock_out_time):'';
+    var color=type==='ci'?'var(--green)':'var(--orange)';
+    var label=type==='ci'?'🌅 Clock In':'🌇 Clock Out';
+    var btnBg=type==='ci'?'':'background:var(--orange)';
+    var btnLbl=type==='ci'?'Simpan Clock In':'Simpan Clock Out';
+    if(done){
+      var jam='';try{jam=new Date(tm).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}catch(e){}
+      return '<div class="card" style="margin-bottom:0">'+
+        '<div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:10px">'+label+'</div>'+
+        (url?'<img src="'+url+'" style="width:100%;max-height:200px;object-fit:cover;border-radius:12px;cursor:pointer" onclick="openAbsPhoto(\''+url+'\')">':'')+
+        '<div class="save-msg ok" style="display:block;margin-top:10px">✅ Sudah '+(type==='ci'?'Clock In':'Clock Out')+' pukul '+jam+'</div>'+
+        '</div>';
+    }
+    return '<div class="card" style="margin-bottom:0">'+
+      '<div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:10px">'+label+'</div>'+
+      '<div class="abs-photo-card" onclick="document.getElementById(\'abs-'+type+'\').click()">'+
+      '<div id="abs-'+type+'-preview"><div class="apc-ico">📷</div><div class="apc-sub">Tap untuk selfie</div></div>'+
+      '<input type="file" id="abs-'+type+'" accept="image/*" capture="user" onchange="handleAbsPhoto(this,\''+type+'\')">'+
+      '</div>'+
+      '<button class="save-btn" style="width:100%;margin-top:10px;'+btnBg+'" onclick="saveAbsensiType(\''+type+'\')">'+btnLbl+'</button>'+
+      '<div id="abs-'+type+'-msg" class="save-msg"></div>'+
+      '</div>';
+  }
   c.innerHTML='<div class="card">'+
   '<div class="card-title">🕐 Absensi — '+S.user.display_name+'</div>'+
   '<div class="form-grid">'+
@@ -1129,24 +1165,7 @@ async function renderAbsensi(c){
   '</div>'+
   '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--orange);border-radius:8px;padding:10px 12px;margin-top:12px;line-height:1.5">📸 <b>Wajib selfie</b> dengan <b>atribut lengkap</b> (seragam/apron) dan pastikan <b>background terlihat berada di lokasi toko</b>. Foto tanpa atribut atau bukan di lokasi toko dianggap tidak sah.</div>'+
   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">'+
-  '<div class="card" style="margin-bottom:0">'+
-  '<div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px">🌅 Clock In</div>'+
-  '<div class="abs-photo-card" onclick="document.getElementById(\'abs-ci\').click()">'+
-  '<div id="abs-ci-preview"><div class="apc-ico">📷</div><div class="apc-sub">Tap untuk selfie</div></div>'+
-  '<input type="file" id="abs-ci" accept="image/*" capture="user" onchange="handleAbsPhoto(this,\'ci\')">'+
-  '</div>'+
-  '<button class="save-btn" style="width:100%;margin-top:10px" onclick="saveAbsensiType(\'ci\')">Simpan Clock In</button>'+
-  '<div id="abs-ci-msg" class="save-msg"></div>'+
-  '</div>'+
-  '<div class="card" style="margin-bottom:0">'+
-  '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:10px">🌇 Clock Out</div>'+
-  '<div class="abs-photo-card" onclick="document.getElementById(\'abs-co\').click()">'+
-  '<div id="abs-co-preview"><div class="apc-ico">📷</div><div class="apc-sub">Tap untuk selfie</div></div>'+
-  '<input type="file" id="abs-co" accept="image/*" capture="user" onchange="handleAbsPhoto(this,\'co\')">'+
-  '</div>'+
-  '<button class="save-btn" style="width:100%;margin-top:10px;background:var(--orange)" onclick="saveAbsensiType(\'co\')">Simpan Clock Out</button>'+
-  '<div id="abs-co-msg" class="save-msg"></div>'+
-  '</div>'+
+  slot('ci')+slot('co')+
   '</div>'+
   '</div>';
 }
@@ -1491,6 +1510,60 @@ function renderCogs(c){
   window.__cogsItems=items;
   renderCogsRows();
 }
+
+// ========================= LAPORAN (Staff → Owner) =========================
+function renderLaporan(c){
+  c.innerHTML='<div class="card">'+
+  '<div class="card-title">📮 Tulis Laporan</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--gold);border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5">Laporan ini <b>hanya bisa dibaca oleh Owner</b>. Gunakan untuk menyampaikan keluh kesah, kendala, atau melaporkan ketidakadilan/kecurangan. Identitasmu tercatat.</div>'+
+  '<div class="form-grid">'+
+  '<div class="fg full"><label>Kategori</label><select class="fi2" id="lap-kat"><option>Umum</option><option>Kendala Operasional</option><option>Keluhan</option><option>Laporan Kecurangan</option><option>Laporan Ketidakadilan</option><option>Saran / Ide</option><option>Lainnya</option></select></div>'+
+  '<div class="fg full"><label>Pesan</label><textarea class="fi2" id="lap-msg" rows="6" placeholder="Tulis pesanmu di sini..." style="resize:vertical;font-family:inherit"></textarea></div>'+
+  '</div>'+
+  '<div class="row-actions"><button class="save-btn" onclick="submitLaporan()">Kirim Laporan</button><div id="lap-save-msg" class="save-msg"></div></div>'+
+  '</div>';
+}
+async function submitLaporan(){
+  var msg=(document.getElementById('lap-msg')||{value:''}).value.trim();
+  var kat=(document.getElementById('lap-kat')||{value:'Umum'}).value;
+  if(!msg){var m=document.getElementById('lap-save-msg');if(m){m.textContent='❌ Pesan tidak boleh kosong';m.className='save-msg err';}return;}
+  var btn=document.querySelector('#content .save-btn');if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'saveLaporan',token:S.token,kategori:kat,pesan:msg});
+    var m=document.getElementById('lap-save-msg');
+    if(r.ok){if(m){m.textContent='✅ Laporan terkirim ke Owner. Terima kasih.';m.className='save-msg ok';}var t=document.getElementById('lap-msg');if(t)t.value='';}
+    else{if(m){m.textContent='❌ '+(r.error||'Error');m.className='save-msg err';}}
+  }catch(e){var m=document.getElementById('lap-save-msg');if(m){m.textContent='❌ '+e.message;m.className='save-msg err';}}
+  if(btn){btn.disabled=false;btn.textContent='Kirim Laporan';}
+}
+window.submitLaporan=submitLaporan;
+
+async function renderLaporanView(c){
+  if(S.user.role!=='Owner'){c.innerHTML='<div class="empty"><div class="ei">🔒</div><div>Hanya Owner yang bisa melihat laporan</div></div>';return;}
+  c.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getLaporan',token:S.token});
+    if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    var rows=r.data||[];
+    if(!rows.length){c.innerHTML='<div class="empty"><div class="ei">📭</div><div>Belum ada laporan masuk</div></div>';return;}
+    // rows: [timestamp, username, display_name, store, kategori, pesan]
+    var katColor={'Laporan Kecurangan':'var(--red)','Laporan Ketidakadilan':'var(--red)','Keluhan':'var(--orange)','Kendala Operasional':'var(--orange)'};
+    c.innerHTML='<div class="card-title" style="margin-bottom:14px">📮 Laporan Masuk ('+rows.length+')</div>'+
+    rows.map(function(r){
+      var col=katColor[r[4]]||'var(--gold)';
+      return '<div class="card" style="border-left:4px solid '+col+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+
+      '<span class="tag" style="background:'+col+';color:#fff">'+r[4]+'</span>'+
+      '<span style="font-size:11.5px;color:var(--brown-soft)">'+r[0]+'</span>'+
+      '</div>'+
+      '<div style="font-size:14px;color:var(--brown-deep);line-height:1.55;white-space:pre-wrap;margin-bottom:8px">'+String(r[5]||'').replace(/</g,'&lt;')+'</div>'+
+      '<div style="font-size:12px;color:var(--brown-soft)">— '+r[2]+' ('+r[1]+')'+(r[3]?' · '+String(r[3]).replace('SOYASUKA_',''):'')+'</div>'+
+      '</div>';
+    }).join('');
+  }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+}
+window.renderLaporanView=renderLaporanView;
+
 function renderCogsRows(){
   var items=window.__cogsItems||[];
   var q=(document.getElementById('cogs-search')&&document.getElementById('cogs-search').value||'').trim().toLowerCase();
