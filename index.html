@@ -341,8 +341,8 @@ function fmtDate(s){ if(!s)return '–'; var d=new Date(s+'T00:00:00'); return d
 function fmtDateShort(s){ if(!s)return '–'; var d=new Date(s+'T00:00:00'); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}); }
 function fmtRp(n){ n=Number(n)||0; return 'Rp '+n.toLocaleString('id-ID'); }
 function pct(n){ n=Number(n)||0; return (n<=1&&n>0?n*100:n).toFixed(0)+'%'; }
-function saveS(t,u){ sessionStorage.setItem('_t',t); sessionStorage.setItem('_u',JSON.stringify(u)); }
-function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_u'); return t&&u?{token:t,user:JSON.parse(u)}:null; }
+function saveS(t,u,ta){ sessionStorage.setItem('_t',t); sessionStorage.setItem('_u',JSON.stringify(u)); if(ta) sessionStorage.setItem('_ta',JSON.stringify(ta)); }
+function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_u'),ta=sessionStorage.getItem('_ta'); return t&&u?{token:t,user:JSON.parse(u),tabAccess:ta?JSON.parse(ta):null}:null; }
 function clearS(){ sessionStorage.clear(); }
 
 async function api(p){
@@ -373,7 +373,7 @@ async function doLogin(){
   btn.disabled=true; btn.innerHTML='<span class="spin"></span>Masuk...';
   try{
     var r=await api({action:'login',username:u,password:p});
-    if(r.ok){ S.token=r.token; S.user=r.user; S.store=r.user.role==='Staff'?r.user.store:null; saveS(r.token,r.user); startApp(); }
+    if(r.ok){ S.token=r.token; S.user=r.user; S.tabAccess=r.tabAccess||null; S.store=r.user.role==='Staff'?r.user.store:null; saveS(r.token,r.user,r.tabAccess); startApp(); }
     else showLmsg(r.error||'Login gagal');
   }catch(e){showLmsg('Gagal terhubung: '+e.message);}
   btn.disabled=false; btn.textContent='Masuk →';
@@ -494,9 +494,20 @@ var NAV_DEFS = {
   ]
 };
 
+// Cek apakah tab boleh diakses role ini (dari sheet TAB_ACCESS).
+// Kalau tabAccess belum ada (offline/gagal), fallback: pakai daftar NAV_DEFS bawaan.
+function canTab(id){
+  if(id==='dashboard') return true; // dashboard selalu boleh
+  if(!S.tabAccess) return true;
+  var a=S.tabAccess[id];
+  if(!a) return true; // tab belum terdaftar di sheet → jangan diblokir
+  return !!a[S.user.role];
+}
+window.canTab=canTab;
+
 function buildNav(){
   var nav=document.getElementById('nav'); nav.innerHTML='';
-  var items=NAV_DEFS[S.user.role]||NAV_DEFS.Staff;
+  var items=(NAV_DEFS[S.user.role]||NAV_DEFS.Staff).filter(function(it){ return canTab(it.id); });
   var lastSec='';
   items.forEach(function(item){
     if(item.sec&&item.sec!==lastSec){ var s=document.createElement('div'); s.className='nav-sec'; s.textContent=item.sec; nav.appendChild(s); lastSec=item.sec; }
@@ -508,6 +519,7 @@ function buildNav(){
 }
 
 function navigateTo(id){
+  if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
   var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk'};
   document.getElementById('tb-title').textContent=titles[id]||id;
@@ -520,10 +532,24 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 document.getElementById('btn-logout').addEventListener('click',function(){clearS();location.reload();});
 
 // Auto-restore session
-(function(){ var sess=loadS(); if(sess){S.token=sess.token;S.user=sess.user;S.store=S.user.role==='Staff'?S.user.store:null;startApp();} })();
+(function(){ var sess=loadS(); if(sess){S.token=sess.token;S.user=sess.user;S.tabAccess=sess.tabAccess||null;S.store=S.user.role==='Staff'?S.user.store:null;startApp();} })();
 
 // ── DATA ──
-async function loadBaseData(){ try{ var r=await api({action:'getBaseData',token:S.token}); if(r.ok)S.baseData=r; }catch(e){console.warn(e);} }
+async function loadBaseData(){
+  try{
+    var r=await api({action:'getBaseData',token:S.token});
+    if(r.ok){
+      S.baseData=r;
+      // Refresh akses tab (kalau Owner ubah TAB_ACCESS saat user sedang login)
+      if(r.tabAccess){
+        var changed=JSON.stringify(S.tabAccess)!==JSON.stringify(r.tabAccess);
+        S.tabAccess=r.tabAccess;
+        sessionStorage.setItem('_ta',JSON.stringify(r.tabAccess));
+        if(changed) buildNav();
+      }
+    }
+  }catch(e){console.warn(e);}
+}
 async function loadStoreData(store,date){
   if(!store)return null;
   try{ var r=await api({action:'getStoreData',token:S.token,store:store,date:date||S.today}); if(r.ok){S.storeData=r;return r;} }catch(e){console.warn(e);}
