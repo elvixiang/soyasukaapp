@@ -219,6 +219,7 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .popup-bg.show{opacity:1;pointer-events:auto}
 .popup{background:var(--surface);border-radius:22px;max-width:440px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 30px 70px rgba(40,28,18,.4);transform:translateY(12px) scale(.97);transition:transform .25s}
 .popup-bg.show .popup{transform:none}
+.popup.wide{max-width:820px}
 .popup-head{padding:18px 20px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
 .popup-head h3{font-size:16px;font-weight:700;color:var(--brown-deep);flex:1}
 .popup-close{background:var(--surface2);border:0;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--brown)}
@@ -280,6 +281,8 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   .form-grid,.menu-grid,.mission-grid{grid-template-columns:1fr}
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
@@ -502,6 +505,7 @@ var NAV_DEFS = {
     {id:'checklist-closing',ico:'🌙',lbl:'Checklist Closing',sec:''},
     {id:'wastage',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'so',ico:'📦',lbl:'Stock Opname',sec:''},
+    {id:'order',ico:'🛒',lbl:'Order',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
@@ -523,16 +527,26 @@ var NAV_DEFS = {
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
+    {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
     {id:'cogs',ico:'💹',lbl:'COGS Overview',sec:'Analitik'},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
     {id:'laporan-view',ico:'📮',lbl:'Laporan Masuk',sec:'Lainnya'},
+  ],
+  Admin:[
+    {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
+    {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
+    {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
+    {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
   ]
 };
 
 // Cek apakah tab boleh diakses role ini (dari sheet TAB_ACCESS).
 // Kalau tabAccess belum ada (offline/gagal), fallback: pakai daftar NAV_DEFS bawaan.
+function canSeeNominal(){ return S.user.role==='Owner'||S.user.role==='Admin'; }
+window.canSeeNominal=canSeeNominal;
+
 function canTab(id){
   if(id==='dashboard') return true; // dashboard selalu boleh
   if(!S.tabAccess) return true;
@@ -558,7 +572,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -612,6 +626,8 @@ async function renderPage(id){
     case 'resep': renderResep(c); break;
     case 'forecasting': renderForecasting(c); break;
     case 'cogs': renderCogs(c); break;
+    case 'order': renderOrder(c); break;
+    case 'incoming-po': renderIncomingPO(c); break;
     case 'laporan': renderLaporan(c); break;
     case 'laporan-view': renderLaporanView(c); break;
     default: c.innerHTML='<div class="empty"><div class="ei">🔧</div><div>Halaman belum tersedia</div></div>';
@@ -627,7 +643,7 @@ function selectStore(s){ S.store=s; document.getElementById('sb-store').textCont
 window.selectStore=selectStore;
 
 // ── POPUP ──
-function showPopup(title,html){ document.getElementById('popup-title').textContent=title; document.getElementById('popup-body').innerHTML=html; document.getElementById('popup-bg').classList.add('show'); }
+function showPopup(title,html,wide){ document.getElementById('popup-title').textContent=title; document.getElementById('popup-body').innerHTML=html; document.getElementById('popup').classList.toggle('wide',!!wide); document.getElementById('popup-bg').classList.add('show'); }
 function closePopup(){ document.getElementById('popup-bg').classList.remove('show'); }
 document.getElementById('popup-bg').addEventListener('click',function(e){if(e.target===this)closePopup();});
 
@@ -831,7 +847,7 @@ async function loadPerfData(){
     daily.push({date:x.dt,sales:s,txn:t,wst:w.length,wstNom:nom});
   });
   daily.sort(function(a,b){return a.date<b.date?-1:1;});
-  var isOwner=S.user.role==='Owner';
+  var isOwner=canSeeNominal();
   var avg=daily.length?Math.round(totalSales/daily.length):0;
   // Simpan di global supaya onclick tak perlu menaruh JSON besar di atribut HTML
   // (JSON besar/berkarakter khusus bikin onclick rusak diam-diam).
@@ -1091,7 +1107,7 @@ window.wstReasonChange=wstReasonChange;
 
 // Wastage view (AM/Owner)
 async function renderWastageView(c){
-  var isOwner=S.user.role==='Owner';
+  var isOwner=canSeeNominal();
   c.innerHTML='<div class="perf-date"><select id="wv-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select><input type="date" id="wv-date" value="'+S.today+'"><button class="save-btn" onclick="loadWV()">Tampilkan</button></div><div id="wv-content"></div>';
   if(S.store){document.getElementById('wv-store').value=S.store;loadWV();}
 }
@@ -1120,7 +1136,7 @@ async function loadWV(){
   if(!S.baseData) await loadBaseData();
   var sd=await loadStoreData(store,date);
   var wst=sd?sd.wastageToday||[]:[];
-  var isOwner=S.user.role==='Owner';
+  var isOwner=canSeeNominal();
   var totalNom=0; var adaNomTakLengkap=false;
   var rowsHtml=wst.map(function(r){
     var nomHtml='';
@@ -1654,6 +1670,241 @@ async function renderLaporanView(c){
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.renderLaporanView=renderLaporanView;
+
+// ========================= ORDER / PURCHASE ORDER =========================
+var ORDER_ITEMS=[];
+async function renderOrder(c){
+  if(!ensureStore(c)) return;
+  c.innerHTML=LOADING;
+  var sd=await loadStoreData(S.store);
+  var list=(sd&&sd.orderList)||[];
+  if(!list.length){
+    c.innerHTML='<div class="empty"><div class="ei">🛒</div><div>Belum ada bahan yang bisa diorder (kolom CAN ORDER = CAN di ING MASTER)</div></div>';
+    return;
+  }
+  ORDER_ITEMS=list;
+  var rows=list.map(function(it,i){
+    var pack=(it.fullPax!==''&&it.fullPax!==null?Number(it.fullPax).toLocaleString('id-ID'):'')+' '+(it.unit||'');
+    return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
+      '<td style="font-weight:600">'+it.name+'</td>'+
+      '<td style="color:var(--brown-soft);white-space:nowrap">'+pack.trim()+' / pack</td>'+
+      '<td><input type="number" min="0" placeholder="0" id="po-qty-'+i+'" oninput="calcOrderTotal()"></td></tr>';
+  }).join('');
+  c.innerHTML='<div class="card">'+
+    '<div class="card-title">🛒 Buat Purchase Order</div>'+
+    '<div class="form-grid">'+
+      '<div class="fg"><label>Tanggal</label><input class="fi2" value="'+fmtDate(S.today)+'" readonly></div>'+
+      '<div class="fg"><label>Toko</label><input class="fi2" value="'+S.store.replace('SOYASUKA_','')+'" readonly></div>'+
+    '</div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin:12px 0">Isi jumlah <b>pack</b> yang ingin dipesan. Item yang dikosongkan tidak masuk PO.</div>'+
+    '<div class="tbl-wrap"><table class="tbl">'+
+      '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Order (pack)</th></tr></thead>'+
+      '<tbody>'+rows+'</tbody></table></div>'+
+    '<div class="row-actions" style="justify-content:space-between">'+
+      '<button class="save-btn" onclick="submitOrder()">Submit Order</button>'+
+      '<span id="po-total" style="font-size:13px;color:var(--brown-soft)">0 item dipilih</span>'+
+    '</div>'+
+    '<div id="po-msg" class="save-msg"></div>'+
+  '</div>';
+}
+function calcOrderTotal(){
+  var n=0;
+  ORDER_ITEMS.forEach(function(it,i){ var el=document.getElementById('po-qty-'+i); if(el&&Number(el.value)>0) n++; });
+  var t=document.getElementById('po-total'); if(t) t.textContent=n+' item dipilih';
+}
+window.calcOrderTotal=calcOrderTotal;
+
+async function submitOrder(){
+  var items=[];
+  ORDER_ITEMS.forEach(function(it,i){
+    var el=document.getElementById('po-qty-'+i);
+    var q=el?Number(el.value)||0:0;
+    if(q>0) items.push({name:it.name,qty:q,fullPax:it.fullPax,unit:it.unit});
+  });
+  var msg=document.getElementById('po-msg');
+  if(!items.length){ if(msg){msg.textContent='❌ Isi minimal 1 item';msg.className='save-msg err';} return; }
+  var btn=document.querySelector('#content .save-btn'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'savePO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items)});
+    if(r.ok){
+      if(msg){msg.textContent='✅ Order terkirim! Order ID: '+r.order_id;msg.className='save-msg ok';}
+      ORDER_ITEMS.forEach(function(it,i){ var el=document.getElementById('po-qty-'+i); if(el) el.value=''; });
+      calcOrderTotal();
+    } else if(msg){ msg.textContent='❌ '+(r.error||'Error');msg.className='save-msg err'; }
+  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
+  if(btn){btn.disabled=false;btn.textContent='Submit Order';}
+}
+window.submitOrder=submitOrder;
+
+// ========================= INCOMING PO (Owner/Admin) =========================
+var PO_LIST=[];
+async function renderIncomingPO(c){
+  if(['Owner','Admin'].indexOf(S.user.role)<0){c.innerHTML='<div class="empty"><div class="ei">🔒</div><div>Tidak punya akses</div></div>';return;}
+  c.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getPOList',token:S.token});
+    if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    PO_LIST=r.data||[];
+    if(!PO_LIST.length){c.innerHTML='<div class="empty"><div class="ei">📭</div><div>Belum ada pengajuan PO</div></div>';return;}
+    c.innerHTML='<div class="perf-date" style="margin-bottom:14px"><input type="text" id="po-search" placeholder="🔍 Cari toko / tanggal / nama / order ID..." oninput="filterPO()" style="flex:1;min-width:180px;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:9px 12px;outline:none"></div>'+
+      '<div class="tbl-wrap"><table class="tbl" id="po-tbl">'+
+      '<thead><tr><th>Order ID</th><th>Nama Store</th><th>Tanggal Pengajuan</th><th>Diajukan Oleh</th><th>Item</th><th>Preview</th><th>Download</th></tr></thead>'+
+      '<tbody>'+PO_LIST.map(function(po,i){
+        var key=(po.order_id+' '+po.store+' '+po.date+' '+po.display_name).toLowerCase().replace(/"/g,'');
+        return '<tr data-key="'+key+'">'+
+          '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
+          '<td>'+String(po.store).replace('SOYASUKA_','')+'</td>'+
+          '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
+          '<td>'+po.display_name+'</td>'+
+          '<td style="text-align:center">'+po.items.length+'</td>'+
+          '<td><button class="ftab" style="padding:5px 12px" onclick="previewPO('+i+')">👁 Preview</button></td>'+
+          '<td><button class="ftab" style="padding:5px 12px" onclick="downloadPO('+i+')">⬇ PDF</button></td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+}
+function filterPO(){
+  var q=((document.getElementById('po-search')||{}).value||'').trim().toLowerCase();
+  document.querySelectorAll('#po-tbl tbody tr').forEach(function(tr){
+    tr.style.display=(!q||tr.dataset.key.indexOf(q)>=0)?'':'none';
+  });
+}
+window.filterPO=filterPO;
+window.renderIncomingPO=renderIncomingPO;
+
+// ========================= PDF PURCHASE ORDER (A4) =========================
+var PO_TERMS=[
+ '1. Seluruh barang wajib dikirimkan paling lambat 3 (tiga) hari setelah Purchase Order ini diterima dan ditandatangani.',
+ '2. Pihak pembeli berhak menolak barang yang rusak, kedaluwarsa, tidak sesuai, atau tidak memenuhi ketentuan yang tercantum dalam Purchase Order.',
+ '3. Barang yang ditolak wajib diganti atau dikembalikan dananya oleh pihak pemasok tanpa biaya tambahan.',
+ '4. Setiap kekurangan atau kelebihan pengiriman wajib dilaporkan dan disepakati pada saat penerimaan barang.',
+ '5. Kedua belah pihak dibebaskan dari tanggung jawab atas keterlambatan atau kegagalan pelaksanaan yang disebabkan oleh keadaan kahar (force majeure).'
+];
+function storeFullName(s){
+  var m={'SOYASUKA_MOI':'SoyaSuka \u2014 Mall of Indonesia','SOYASUKA_BXC':'SoyaSuka \u2014 BXC'};
+  return m[s]||String(s||'').replace('SOYASUKA_','SoyaSuka \u2014 ');
+}
+function getLogoDataUrl(){
+  var el=document.querySelector('.login-logo')||document.querySelector('.sb-logo img');
+  return el?el.src:'';
+}
+function buildPOPdf(po){
+  var JsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+  if(!JsPDF) throw new Error('Library PDF belum termuat, coba refresh halaman');
+  var doc=new JsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+  var ESP=[74,55,39], GOLD=[201,154,78], SOFT=[154,126,99], LINE=[228,216,197];
+  var W=210, M=15;
+
+  // Garis aksen atas
+  doc.setFillColor(ESP[0],ESP[1],ESP[2]); doc.rect(0,0,W,6,'F');
+  doc.setFillColor(GOLD[0],GOLD[1],GOLD[2]); doc.rect(0,6,W,1.2,'F');
+
+  // Logo + identitas perusahaan
+  try{ var lg=getLogoDataUrl(); if(lg) doc.addImage(lg,'PNG',M,13,24,24); }catch(e){}
+  doc.setTextColor(ESP[0],ESP[1],ESP[2]);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('PT SUKA SEGAR INDONESIA',M,42);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+  doc.text('Comfort in every spoon and sip',M,46);
+
+  // Judul
+  doc.setTextColor(ESP[0],ESP[1],ESP[2]);
+  doc.setFont('helvetica','bold'); doc.setFontSize(21);
+  doc.text('PURCHASE ORDER',W-M,24,{align:'right'});
+
+  // DATE / ORDER ID
+  doc.setFontSize(9);
+  doc.setFont('helvetica','bold');
+  doc.text('DATE:',118,34);
+  doc.text('ORDER ID:',118,41);
+  doc.setFont('helvetica','normal');
+  doc.text(fmtDateShort(po.date),145,34);
+  doc.text(String(po.order_id),145,41);
+  doc.setDrawColor(LINE[0],LINE[1],LINE[2]); doc.setLineWidth(0.3);
+  doc.line(145,35.5,W-M,35.5); doc.line(145,42.5,W-M,42.5);
+
+  // VENDOR / SHIP TO
+  var y=58;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
+  doc.text('VENDOR:',M,y);
+  doc.text('SHIP TO:',113,y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+  doc.text('\u2014',M,y+7);
+  doc.setTextColor(ESP[0],ESP[1],ESP[2]);
+  var shipLines=doc.splitTextToSize(storeFullName(po.store),82);
+  doc.text(shipLines,113,y+7);
+
+  // Tabel item
+  var body=(po.items||[]).map(function(it){
+    var pax=(it.fullPax!==''&&it.fullPax!==null&&it.fullPax!==undefined)?(Number(it.fullPax).toLocaleString('id-ID')+' '+(it.unit||'')):'';
+    return [String(it.name), pax.trim(), 'PACK', String(it.qty)];
+  });
+  doc.autoTable({
+    startY:y+18,
+    head:[['Item Name','Description','Item Unit','Order Qty']],
+    body:body,
+    theme:'grid',
+    styles:{font:'helvetica',fontSize:9,cellPadding:2.6,textColor:ESP,lineColor:LINE,lineWidth:0.2},
+    headStyles:{fillColor:ESP,textColor:[255,255,255],fontStyle:'bold',halign:'center'},
+    alternateRowStyles:{fillColor:[251,247,239]},
+    columnStyles:{0:{cellWidth:66},1:{cellWidth:52,halign:'center'},2:{cellWidth:28,halign:'center'},3:{cellWidth:34,halign:'center',fontStyle:'bold'}},
+    margin:{left:M,right:M}
+  });
+
+  // Terms & Authorised
+  var ty=doc.lastAutoTable.finalY+14;
+  if(ty>232){ doc.addPage(); ty=24; }
+  doc.setFillColor(ESP[0],ESP[1],ESP[2]); doc.rect(M,ty-4.5,34,6,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bolditalic'); doc.setFontSize(7.5);
+  doc.text('Terms & Conditions:',M+1.6,ty-0.4);
+  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]); doc.setFont('helvetica','italic'); doc.setFontSize(6.8);
+  var cy=ty+5;
+  PO_TERMS.forEach(function(t){
+    var ls=doc.splitTextToSize(t,105);
+    doc.text(ls,M,cy); cy+=ls.length*2.9+1.1;
+  });
+
+  doc.setFillColor(ESP[0],ESP[1],ESP[2]); doc.rect(133,ty-4.5,28,6,'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bolditalic'); doc.setFontSize(7.5);
+  doc.text('Authorised by:',134.6,ty-0.4);
+  doc.setDrawColor(SOFT[0],SOFT[1],SOFT[2]); doc.setLineWidth(0.3);
+  doc.setLineDashPattern([1,1],0);
+  doc.line(133,ty+26,W-M,ty+26);
+  doc.setLineDashPattern([],0);
+  doc.setTextColor(ESP[0],ESP[1],ESP[2]); doc.setFont('helvetica','bolditalic'); doc.setFontSize(9.5);
+  doc.text(String(po.display_name||''),(133+(W-M))/2,ty+31,{align:'center'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(7);
+  doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+  doc.text(storeFullName(po.store),(133+(W-M))/2,ty+35,{align:'center'});
+
+  // Garis aksen bawah
+  doc.setFillColor(ESP[0],ESP[1],ESP[2]); doc.rect(0,291,W,6,'F');
+  doc.setFillColor(GOLD[0],GOLD[1],GOLD[2]); doc.rect(0,289.8,W,1.2,'F');
+  return doc;
+}
+function poFileName(po){
+  return 'PO_'+String(po.store||'').replace('SOYASUKA_','')+'_'+String(po.order_id||'').replace(/[^0-9A-Za-z]/g,'-')+'.pdf';
+}
+function previewPO(i){
+  var po=PO_LIST[i]; if(!po) return;
+  try{
+    var doc=buildPOPdf(po);
+    var url=doc.output('bloburl');
+    showPopup('Preview — '+po.order_id,
+      '<iframe src="'+url+'" style="width:100%;height:62vh;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>'+
+      '<div style="display:flex;gap:8px;margin-top:10px"><button class="save-btn" style="flex:1" onclick="downloadPO('+i+')">⬇ Download PDF</button></div>', true);
+  }catch(e){ showPopup('Preview gagal', '<div style="color:var(--red)">'+e.message+'</div>'); }
+}
+function downloadPO(i){
+  var po=PO_LIST[i]; if(!po) return;
+  try{ buildPOPdf(po).save(poFileName(po)); }
+  catch(e){ alert('Gagal membuat PDF: '+e.message); }
+}
+window.previewPO=previewPO; window.downloadPO=downloadPO;
+
+
 
 function renderCogsRows(){
   var items=window.__cogsItems||[];
