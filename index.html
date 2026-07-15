@@ -1083,37 +1083,65 @@ async function renderSO(c){
   if(!ensureStore(c)) return;
   c.innerHTML=LOADING;
   var sd=await loadStoreData(S.store);
-  // soList dari backend: hanya item ING MASTER dgn Need SO (kol F)=YES, unit dari kol D
   var soItems=(sd&&sd.soList)||[];
   if(!soItems.length){
     c.innerHTML='<div class="empty"><div class="ei">📦</div><div>Belum ada bahan yang ditandai perlu Stock Opname (kolom Need SO = YES di ING MASTER)</div></div>';
     return;
   }
   SO_ITEMS=soItems.map(function(it){return{name:it.name,unit:it.unit};});
-  c.innerHTML='<div class="card">'+
-  '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
-  '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" id="so-date" value="'+S.today+'" readonly></div></div>'+
-  '<div class="tbl-wrap" style="margin-top:14px"><table class="tbl" id="so-tbl">'+
-  '<thead><tr><th>#</th><th>Nama Bahan</th><th>Unit</th><th>Qty Aktual</th><th>Catatan</th></tr></thead>'+
-  '<tbody>'+soItems.map(function(it,i){
+  // Data SO yang sudah tersimpan hari ini → {nama: qty}
+  var saved={}; var hasData=false;
+  ((sd&&sd.soToday)||[]).forEach(function(row){ saved[String(row[1]).trim()]=row[3]; hasData=true; });
+  window._soSaved=saved; window._soLocked=hasData; // kalau sudah ada data → mulai terkunci
+  renderSOTable(soItems);
+}
+
+function renderSOTable(soItems){
+  var c=document.getElementById('content');
+  var saved=window._soSaved||{}; var locked=window._soLocked;
+  var rowsHtml=soItems.map(function(it,i){
+    var val=saved[it.name.trim()];
+    var hasVal=(val!==undefined&&val!==''&&val!==null);
     return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
     '<td style="font-weight:600">'+it.name+'</td>'+
     '<td style="color:var(--brown-soft)">'+(it.unit||'')+'</td>'+
-    '<td><input type="number" min="0" placeholder="0" id="so-qty-'+i+'"></td>'+
-    '<td><input type="text" placeholder="–" id="so-note-'+i+'" style="width:120px;font-family:inherit;font-size:12px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:8px;padding:6px 8px;outline:none"></td></tr>';
-  }).join('')+'</tbody></table></div>'+
-  '<div class="row-actions"><button class="save-btn" onclick="saveSO()">Simpan Stock Opname</button><div id="so-msg" class="save-msg"></div></div></div>';
+    '<td><input type="number" min="0" placeholder="0" id="so-qty-'+i+'" value="'+(hasVal?val:'')+'" '+(locked?'disabled':'')+' style="'+(locked?'opacity:.65;background:var(--surface2)':'')+'"></td></tr>';
+  }).join('');
+  var actionBtn = locked
+    ? '<button class="save-btn" onclick="unlockSO()" style="background:var(--gold)">✏️ Edit</button>'
+    : '<button class="save-btn" onclick="saveSO()">Simpan Stock Opname</button>';
+  var statusNote = locked
+    ? '<div style="font-size:12.5px;color:var(--green);background:#F0FBF0;border:1px solid #B7E8C0;border-radius:8px;padding:9px 12px;margin-bottom:12px">✅ Stock Opname hari ini sudah tersimpan. Klik <b>Edit</b> untuk mengubah angka.</div>'
+    : '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Isi jumlah stok fisik aktual, lalu klik Simpan. Data tersimpan untuk tanggal hari ini.</div>';
+  c.innerHTML='<div class="card">'+
+  '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
+  '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" value="'+S.today+'" readonly></div></div>'+
+  '<div style="margin-top:12px">'+statusNote+'</div>'+
+  '<div class="tbl-wrap"><table class="tbl" id="so-tbl">'+
+  '<thead><tr><th>#</th><th>Nama Bahan</th><th>Unit</th><th>Qty Aktual</th></tr></thead>'+
+  '<tbody>'+rowsHtml+'</tbody></table></div>'+
+  '<div class="row-actions">'+actionBtn+'<div id="so-msg" class="save-msg"></div></div></div>';
 }
 
+function unlockSO(){ window._soLocked=false; renderSOTable(SO_ITEMS); }
+window.unlockSO=unlockSO;
+
 async function saveSO(){
-  var items=SO_ITEMS||[];
-  var btn=document.querySelector('.save-btn');if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
-  var soItems=items.map(function(it,i){return{ingredient:it.name,unit:it.unit,actual_qty:document.getElementById('so-qty-'+i)&&document.getElementById('so-qty-'+i).value||0,notes:document.getElementById('so-note-'+i)&&document.getElementById('so-note-'+i).value||''};});
+  var btn=document.querySelector('#content .save-btn'); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  var items=SO_ITEMS.map(function(it,i){
+    var el=document.getElementById('so-qty-'+i);
+    return {ingredient:it.name,unit:it.unit,actual_qty:(el&&el.value!==''?el.value:0)};
+  });
   try{
-    var r=await api({action:'saveSO',token:S.token,store:S.store,date:document.getElementById('so-date')&&document.getElementById('so-date').value,items:JSON.stringify(soItems)});
+    var r=await api({action:'saveSO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items)});
     var msg=document.getElementById('so-msg');
-    if(r.ok){if(msg){msg.textContent='✅ SO tersimpan ('+r.saved+' bahan)';msg.className='save-msg ok';}}
-    else{if(msg){msg.textContent='❌ '+r.error;msg.className='save-msg err';}}
+    if(r.ok){
+      if(msg){msg.textContent='✅ Berhasil disimpan! ('+r.saved+' bahan)';msg.className='save-msg ok';}
+      // update state tersimpan + kunci lagi
+      var saved={}; items.forEach(function(it){saved[it.ingredient.trim()]=Number(it.actual_qty)||0;});
+      window._soSaved=saved; window._soLocked=true;
+      setTimeout(function(){ renderSOTable(SO_ITEMS); },900);
+    } else { if(msg){msg.textContent='❌ '+(r.error||'Error');msg.className='save-msg err';} }
   }catch(e){var m=document.getElementById('so-msg');if(m){m.textContent='❌ '+e.message;m.className='save-msg err';}}
   if(btn){btn.disabled=false;btn.textContent='Simpan Stock Opname';}
 }
@@ -1515,7 +1543,7 @@ function renderCogs(c){
 function renderLaporan(c){
   c.innerHTML='<div class="card">'+
   '<div class="card-title">📮 Tulis Laporan</div>'+
-  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--gold);border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5">Laporan ini <b>hanya bisa dibaca oleh Owner</b>. Gunakan untuk menyampaikan keluh kesah, kendala, atau melaporkan ketidakadilan/kecurangan. Identitasmu tercatat.</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--gold);border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5">Laporan ini <b>hanya bisa dibaca oleh Owner</b> — tidak ada rekan kerja atau atasan lain yang bisa melihatnya. Sampaikan keluh kesah, kendala, atau laporan ketidakadilan/kecurangan dengan tenang. <b>Jangan khawatir identitasmu bocor</b> — kerahasiaanmu kami jaga.</div>'+
   '<div class="form-grid">'+
   '<div class="fg full"><label>Kategori</label><select class="fi2" id="lap-kat"><option>Umum</option><option>Kendala Operasional</option><option>Keluhan</option><option>Laporan Kecurangan</option><option>Laporan Ketidakadilan</option><option>Saran / Ide</option><option>Lainnya</option></select></div>'+
   '<div class="fg full"><label>Pesan</label><textarea class="fi2" id="lap-msg" rows="6" placeholder="Tulis pesanmu di sini..." style="resize:vertical;font-family:inherit"></textarea></div>'+
