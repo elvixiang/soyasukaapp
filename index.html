@@ -245,6 +245,14 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .abs-cam-err{display:flex;align-items:center;justify-content:center;height:100%;padding:14px;color:#fff;font-size:11.5px;line-height:1.5;text-align:center;background:var(--surface2);color:var(--brown-deep)}
 .abs-cam-btn{width:100%;margin-top:8px;padding:9px;border:1.5px solid var(--line);background:var(--surface2);color:var(--brown-deep);border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
 .abs-cam-btn:hover{border-color:var(--gold)}
+.izin-row{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface2);margin-bottom:8px}
+.izin-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.izin-badge.sakit{background:#EAF1F8;color:var(--blue)}
+.izin-badge.unpaid{background:#FDF1E7;color:var(--orange)}
+.rk-card{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
+.rk-num{font-size:22px;font-weight:800;color:var(--brown-deep);line-height:1.2}
+.rk-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-top:2px}
+.oh-item{font-size:12px;color:var(--brown-soft);padding:2px 0}
 
 /* Cek Absensi AM */
 .abs-filter{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
@@ -557,6 +565,7 @@ var NAV_DEFS = {
     {id:'wastage',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'so',ico:'📦',lbl:'Stock Opname',sec:''},
     {id:'order',ico:'🛒',lbl:'Order',sec:''},
+    {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
@@ -568,6 +577,7 @@ var NAV_DEFS = {
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
+    {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
@@ -579,7 +589,9 @@ var NAV_DEFS = {
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
+    {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
     {id:'cogs',ico:'💹',lbl:'COGS Overview',sec:'Analitik'},
+    {id:'variance',ico:'🔍',lbl:'Variance Stok',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
@@ -590,6 +602,7 @@ var NAV_DEFS = {
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
+    {id:'variance',ico:'🔍',lbl:'Variance Stok',sec:'Analitik'},
   ],
   HR:[
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
@@ -627,7 +640,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -705,6 +718,8 @@ async function renderPage(id){
     case 'cogs': renderCogs(c); break;
     case 'order': renderOrder(c); break;
     case 'incoming-po': renderIncomingPO(c); break;
+    case 'order-history': await renderOrderHistory(c); break;
+    case 'variance': await renderVariance(c); break;
     case 'laporan': renderLaporan(c); break;
     case 'laporan-view': renderLaporanView(c); break;
     default: c.innerHTML='<div class="empty"><div class="ei">🔧</div><div>Halaman belum tersedia</div></div>';
@@ -1363,10 +1378,104 @@ async function renderAbsensi(c){
   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">'+
   slot('ci')+slot('co')+
   '</div>'+
+  '</div>'+
+  // ── Blok Izin ──
+  '<div class="card">'+
+  '<div class="card-title">📝 Ajukan Izin</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Kalau kamu tidak masuk, ajukan izin di sini. Untuk <b>Izin Sakit</b>, lampirkan foto surat dokter kalau ada.</div>'+
+  '<div class="form-grid">'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="iz-date" value="'+S.today+'" max="'+S.today+'"></div>'+
+  '<div class="fg"><label>Jenis Izin</label><select class="fi2" id="iz-jenis"><option value="">— Pilih —</option><option value="Izin Sakit">Izin Sakit</option><option value="Unpaid Leave">Unpaid Leave</option></select></div>'+
+  '<div class="fg full"><label>Keterangan</label><input class="fi2" id="iz-ket" placeholder="Contoh: demam, sudah ke klinik" maxlength="200"></div>'+
+  '<div class="fg full"><label>Foto Surat / Bukti (opsional)</label>'+
+    '<div class="photo-up" onclick="document.getElementById(\'iz-photo-inp\').click()">'+
+    '<div id="iz-photo-preview">📎 Klik untuk upload foto<br><small>Boleh dari galeri · otomatis dikompres</small></div>'+
+    '<input type="file" id="iz-photo-inp" accept="image/*" onchange="handleIzinPhoto(this)"></div>'+
+  '</div>'+
+  '</div>'+
+  '<button class="save-btn" style="width:100%;margin-top:12px" onclick="saveIzin()">Ajukan Izin</button>'+
+  '<div id="iz-msg" class="save-msg"></div>'+
+  '<div id="iz-list" style="margin-top:14px"></div>'+
   '</div>';
   // Nyalakan kamera hanya utk slot yg belum diabsen
   ['ci','co'].forEach(function(t){ if(document.getElementById('abs-cam-'+t)) absStartCam(t); });
+  loadMyIzin();
 }
+
+// ── IZIN ──
+var izinPhoto=null;
+function handleIzinPhoto(inp){
+  var f=inp.files[0]; if(!f) return;
+  var r=new FileReader();
+  r.onload=function(e){
+    var img=new Image();
+    img.onload=function(){
+      var max=1000,w=img.width,h=img.height;
+      if(w>max){h=h*max/w;w=max;} if(h>max){w=w*max/h;h=max;}
+      var cv=document.createElement('canvas');cv.width=w;cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      izinPhoto=cv.toDataURL('image/jpeg',0.72);
+      var pv=document.getElementById('iz-photo-preview');
+      if(pv)pv.innerHTML='<img class="photo-preview" src="'+izinPhoto+'">';
+    };
+    img.src=e.target.result;
+  };
+  r.readAsDataURL(f);
+}
+window.handleIzinPhoto=handleIzinPhoto;
+
+async function saveIzin(){
+  var msg=document.getElementById('iz-msg');
+  function err(t){ if(msg){msg.textContent='❌ '+t;msg.className='save-msg err';} }
+  var date=(document.getElementById('iz-date')||{}).value||'';
+  var jenis=(document.getElementById('iz-jenis')||{}).value||'';
+  var ket=((document.getElementById('iz-ket')||{}).value||'').trim();
+  if(!date) return err('Tanggal wajib diisi');
+  if(!jenis) return err('Pilih jenis izin dulu');
+  var btn=document.querySelector('[onclick="saveIzin()"]');
+  if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  var photoUrl='';
+  try{
+    if(izinPhoto){
+      var fn='izin_'+String(S.user.username).replace(/[^0-9A-Za-z_-]/g,'')+'_'+date+'.jpg';
+      var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,subfolder:'IZIN',photo_base64:izinPhoto,filename:fn});
+      if(pr&&pr.ok) photoUrl=pr.url; else { err('Foto gagal diupload: '+((pr&&pr.error)||'')); if(btn){btn.disabled=false;btn.textContent='Ajukan Izin';} return; }
+    }
+    var r=await api({action:'saveIzin',token:S.token,store:S.store,date:date,jenis:jenis,keterangan:ket,photo_url:photoUrl});
+    if(r&&r.ok){
+      if(msg){msg.textContent=r.updated?'✅ Izin tanggal ini diperbarui':'✅ Izin berhasil diajukan';msg.className='save-msg ok';}
+      izinPhoto=null;
+      var pv=document.getElementById('iz-photo-preview');
+      if(pv)pv.innerHTML='📎 Klik untuk upload foto<br><small>Boleh dari galeri · otomatis dikompres</small>';
+      var kt=document.getElementById('iz-ket'); if(kt)kt.value='';
+      var jn=document.getElementById('iz-jenis'); if(jn)jn.value='';
+      loadMyIzin();
+    } else err((r&&r.error)||'Gagal menyimpan');
+  }catch(e){ err(e.message); }
+  if(btn){btn.disabled=false;btn.textContent='Ajukan Izin';}
+}
+window.saveIzin=saveIzin;
+
+async function loadMyIzin(){
+  var box=document.getElementById('iz-list'); if(!box) return;
+  try{
+    var month=S.today.slice(0,7);
+    var r=await api({action:'getMyIzin',token:S.token,store:S.store,month:month});
+    var rows=(r&&r.data)||[];
+    if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--brown-soft);text-align:center;padding:6px">Belum ada izin bulan ini</div>'; return; }
+    box.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-bottom:8px">Izin bulan ini</div>'+
+      rows.map(function(z){
+        var cls=z.jenis==='Izin Sakit'?'sakit':'unpaid';
+        return '<div class="izin-row">'+
+          '<span style="font-size:12px;font-weight:700;white-space:nowrap">'+fmtDateShort(z.date)+'</span>'+
+          '<span class="izin-badge '+cls+'">'+z.jenis+'</span>'+
+          '<span style="font-size:12px;color:var(--brown-soft);flex:1;overflow:hidden;text-overflow:ellipsis">'+(z.keterangan||'')+'</span>'+
+          (z.photo_url?'<span onclick="openAbsPhoto(\''+z.photo_url+'\')" style="cursor:pointer;color:var(--gold);font-size:12px;font-weight:700;white-space:nowrap">📎 Bukti</span>':'')+
+        '</div>';
+      }).join('');
+  }catch(e){ box.innerHTML=''; }
+}
+window.loadMyIzin=loadMyIzin;
 // ── LIVE CAMERA ABSENSI ──
 // Sengaja TIDAK pakai <input type=file>: upload dari galeri harus mustahil,
 // termasuk saat dibuka dari laptop. Semua foto wajib hasil jepret langsung.
@@ -1457,55 +1566,195 @@ window.saveAbsensiType=saveAbsensiType;
 // CEK ABSENSI (AM)
 // =========================================================
 async function renderCekAbsensi(c){
+  var now=new Date();
   var months=[]; for(var i=0;i<12;i++){var d=new Date(2026,i,1);months.push({val:d.toISOString().slice(0,7),lbl:d.toLocaleDateString('id-ID',{month:'long',year:'numeric'})});}
-  var now=new Date(); var curMonth=now.toISOString().slice(0,7);
+  var curMonth=now.toISOString().slice(0,7);
   c.innerHTML='<div class="abs-filter">'+
   '<select id="ca-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
-  '<input type="month" id="ca-month" value="'+curMonth+'">'+
+  '<select id="ca-mode" onchange="caModeHint()">'+
+    '<option value="month">Per Bulan (tgl 1–akhir)</option>'+
+    '<option value="payroll">Periode Gajian (tgl 26–25)</option>'+
+  '</select>'+
+  '<input type="month" id="ca-month" value="'+curMonth+'" onchange="caModeHint()">'+
   '<button class="save-btn" onclick="loadCekAbsensi()">Tampilkan</button></div>'+
-  '<div id="ca-content"><div class="empty"><div class="ei">🕐</div><div>Pilih toko dan bulan</div></div></div>';
+  '<div id="ca-hint" style="font-size:12px;color:var(--brown-soft);margin:-6px 0 12px 2px"></div>'+
+  '<div id="ca-content"><div class="empty"><div class="ei">🕐</div><div>Pilih toko dan periode</div></div></div>';
   if(S.store){document.getElementById('ca-store').value=S.store;}
+  caModeHint();
 }
+
+// Hitung rentang tanggal dari mode + bulan yg dipilih.
+// month   : 2026-07 → 2026-07-01 .. 2026-07-31
+// payroll : 2026-07 → 2026-06-26 .. 2026-07-25 (tutup buku tgl 25)
+function caRange(mode,month){
+  var p=month.split('-'), yr=+p[0], mo=+p[1];
+  function pad(n){return String(n).padStart(2,'0');}
+  if(mode==='payroll'){
+    var pm=mo-1, py=yr; if(pm<1){pm=12;py=yr-1;}
+    return {from:py+'-'+pad(pm)+'-26', to:yr+'-'+pad(mo)+'-25'};
+  }
+  var last=new Date(yr,mo,0).getDate();
+  return {from:yr+'-'+pad(mo)+'-01', to:yr+'-'+pad(mo)+'-'+pad(last)};
+}
+window.caRange=caRange;
+
+function caModeHint(){
+  var mode=(document.getElementById('ca-mode')||{}).value||'month';
+  var month=(document.getElementById('ca-month')||{}).value||'';
+  var el=document.getElementById('ca-hint'); if(!el||!month) return;
+  var r=caRange(mode,month);
+  el.textContent='Periode: '+fmtDateShort(r.from)+' – '+fmtDateShort(r.to);
+}
+window.caModeHint=caModeHint;
+
+// Daftar semua tanggal dalam rentang
+function caDates(from,to){
+  var out=[], d=new Date(from+'T00:00:00'), end=new Date(to+'T00:00:00');
+  while(d<=end){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return out;
+}
+
+// Selisih jam clock in → clock out. Balik 0 kalau salah satu kosong / tidak masuk akal.
+function jamKerja(ci,co){
+  if(!ci||!co) return 0;
+  var a=new Date(ci), b=new Date(co);
+  if(isNaN(a)||isNaN(b)) return 0;
+  var h=(b-a)/3600000;
+  return (h>0&&h<24)?h:0;
+}
+
 async function loadCekAbsensi(){
-  var store=document.getElementById('ca-store')&&document.getElementById('ca-store').value;
-  var month=document.getElementById('ca-month')&&document.getElementById('ca-month').value;
+  var store=(document.getElementById('ca-store')||{}).value;
+  var mode=(document.getElementById('ca-mode')||{}).value||'month';
+  var month=(document.getElementById('ca-month')||{}).value;
   if(!store||!month)return;
-  document.getElementById('ca-content').innerHTML=''+LOADING+'';
+  var rg=caRange(mode,month);
+  var box=document.getElementById('ca-content');
+  box.innerHTML=''+LOADING+'';
   try{
-    var r=await api({action:'getAbsensi',token:S.token,store:store,month:month});
-    if(!r.ok){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
-    var rows=r.data||[];
-    var mparts=month.split('-'); var yr=mparts[0]; var mo=mparts[1];
-    var daysInMonth=new Date(parseInt(yr),parseInt(mo),0).getDate();
+    var r=await api({action:'getAbsensi',token:S.token,store:store,from:rg.from,to:rg.to});
+    if(!r.ok){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    var rows=r.data||[], izin=r.izin||[];
+
     function parseDStr(v){if(!v)return '';var s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.substring(0,10);var d=new Date(s);if(!isNaN(d.getTime())){var d2=new Date(d.getTime()+7*3600000);return d2.toISOString().substring(0,10);}return s;}
-    var byDate={};
-    rows.forEach(function(row){var d=parseDStr(row[0]);if(!byDate[d])byDate[d]={};byDate[d][row[2]]={ci_time:row[4],co_time:row[5],ci_url:row[6],co_url:row[7]};});
-    var staffSet={}; rows.forEach(function(row){staffSet[row[2]]=row[3];});
+
+    var byDate={}, staffSet={};
+    rows.forEach(function(row){
+      var d=parseDStr(row[0]);
+      if(!byDate[d])byDate[d]={};
+      byDate[d][row[2]]={ci_time:row[4],co_time:row[5],ci_url:row[6],co_url:row[7]};
+      staffSet[row[2]]=row[3];
+    });
+    var izByDate={};
+    izin.forEach(function(z){
+      if(!izByDate[z.date])izByDate[z.date]={};
+      izByDate[z.date][z.username]=z;
+      if(!staffSet[z.username])staffSet[z.username]=z.display_name;
+    });
+
     var staffList=Object.keys(staffSet);
-    if(!staffList.length){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">📭</div><div>Tidak ada data absensi bulan ini</div></div>';return;}
-    var html='<div class="so-tbl-wrap"><table class="so-tbl"><thead><tr>'+
-    '<th class="sticky" style="left:0">Tgl</th>'+
-    staffList.map(function(s){return '<th>'+staffSet[s]+'<br><span style="font-size:9px;opacity:.6">CI | CO</span></th>';}).join('')+
-    '</tr></thead><tbody>';
-    for(var dd=1;dd<=daysInMonth;dd++){
-      var dateStr=yr+'-'+String(mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
-      var dayData=byDate[dateStr]||{};
-      html+='<tr><td class="sticky" style="font-size:12px;left:0;font-weight:600">'+dd+'</td>'+
-      staffList.map(function(s){
-        var sd=dayData[s];if(!sd)return '<td style="color:var(--line);font-size:12px">–</td>';
+    if(!staffList.length){box.innerHTML='<div class="empty"><div class="ei">📭</div><div>Tidak ada data absensi di periode ini</div></div>';return;}
+
+    var dates=caDates(rg.from,rg.to);
+    var totalHari=dates.length;
+
+    // ── Rekap per orang ──
+    var rekap=staffList.map(function(u){
+      var hadir=0,jam=0,sakit=0,unpaid=0;
+      dates.forEach(function(d){
+        var a=(byDate[d]||{})[u];
+        var z=(izByDate[d]||{})[u];
+        if(a&&a.ci_time){ hadir++; jam+=jamKerja(a.ci_time,a.co_time); }
+        else if(z){ if(z.jenis==='Izin Sakit')sakit++; else unpaid++; }
+      });
+      return {u:u,nama:staffSet[u],hadir:hadir,jam:jam,sakit:sakit,unpaid:unpaid,
+              off:totalHari-hadir-sakit-unpaid};
+    });
+
+    var csvBtn='<button class="ftab" style="padding:6px 14px" onclick="exportRekapCSV()">⬇ Export CSV</button>';
+    var html='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<div class="sec" style="margin:0">📊 Rekap ('+totalHari+' hari)</div>'+csvBtn+'</div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto;margin-bottom:6px"><table class="tbl" style="min-width:640px"><thead><tr>'+
+      '<th>Nama</th><th style="text-align:center">Hari Kerja</th><th style="text-align:center">Total Jam</th>'+
+      '<th style="text-align:center">Sakit</th><th style="text-align:center">Unpaid</th>'+
+      '<th style="text-align:center">Off / Tidak Tercatat</th></tr></thead><tbody>'+
+      rekap.map(function(k){
+        return '<tr>'+
+          '<td style="font-weight:600">'+k.nama+'</td>'+
+          '<td style="text-align:center;font-weight:700">'+k.hadir+'</td>'+
+          '<td style="text-align:center">'+k.jam.toFixed(1)+' jam</td>'+
+          '<td style="text-align:center"'+(k.sakit?' style="text-align:center;color:var(--blue);font-weight:700"':'')+'>'+k.sakit+'</td>'+
+          '<td style="text-align:center"'+(k.unpaid?' style="text-align:center;color:var(--orange);font-weight:700"':'')+'>'+k.unpaid+'</td>'+
+          '<td style="text-align:center;color:var(--brown-soft)">'+k.off+'</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>'+
+      '<div style="font-size:11.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:16px;line-height:1.5">⚠ <b>Off / Tidak Tercatat</b> = hari tanpa catatan apa pun. Ini bisa jadi jadwal libur, lupa clock in, atau tidak masuk tanpa kabar — sistem belum punya jadwal shift, jadi belum bisa membedakan. Cek tabel harian di bawah kalau angkanya terasa aneh.</div>';
+
+    // ── Matriks harian ──
+    html+='<div class="sec">🗓️ Detail Harian</div>'+
+      '<div class="so-tbl-wrap"><table class="so-tbl"><thead><tr>'+
+      '<th class="sticky" style="left:0">Tgl</th>'+
+      staffList.map(function(u){return '<th>'+staffSet[u]+'<br><span style="font-size:9px;opacity:.6">CI | CO</span></th>';}).join('')+
+      '</tr></thead><tbody>';
+    dates.forEach(function(d){
+      var lbl=d.slice(8,10)+'/'+d.slice(5,7);
+      html+='<tr><td class="sticky" style="font-size:12px;left:0;font-weight:600">'+lbl+'</td>'+
+      staffList.map(function(u){
+        var z=(izByDate[d]||{})[u];
+        if(z){
+          var col=z.jenis==='Izin Sakit'?'var(--blue)':'var(--orange)';
+          var tag=z.jenis==='Izin Sakit'?'SAKIT':'UNPAID';
+          var t=(z.keterangan||z.jenis).replace(/"/g,'');
+          return '<td style="font-size:11px;font-weight:700;color:'+col+';cursor:pointer" title="'+t+'" onclick="showIzinDetail('+JSON.stringify(JSON.stringify(z)).replace(/"/g,'&quot;')+')">'+tag+'</td>';
+        }
+        var sd=(byDate[d]||{})[u];
+        if(!sd) return '<td style="color:var(--line);font-size:12px">–</td>';
         var ciTxt=sd.ci_time?fmtTime(sd.ci_time):'–';
         var coTxt=sd.co_time?fmtTime(sd.co_time):'–';
-        // Jam bisa diklik utk lihat foto CI/CO. Kalau ada foto → warna & underline + cursor pointer.
         var ci=sd.ci_url?'<span onclick="openAbsPhoto(\''+sd.ci_url+'\')" style="cursor:pointer;color:var(--gold);text-decoration:underline;font-weight:600" title="Lihat foto Clock In">'+ciTxt+'</span>':ciTxt;
         var co=sd.co_url?'<span onclick="openAbsPhoto(\''+sd.co_url+'\')" style="cursor:pointer;color:var(--gold);text-decoration:underline;font-weight:600" title="Lihat foto Clock Out">'+coTxt+'</span>':coTxt;
         return '<td style="font-size:12px">'+ci+' | '+co+'</td>';
       }).join('')+'</tr>';
-    }
+    });
     html+='</tbody></table></div>';
-    document.getElementById('ca-content').innerHTML=html;
-  }catch(e){document.getElementById('ca-content').innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+    box.innerHTML=html;
+
+    // simpan utk export
+    _rekapCtx={rekap:rekap,store:store,from:rg.from,to:rg.to,mode:mode};
+  }catch(e){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.loadCekAbsensi=loadCekAbsensi;
+
+var _rekapCtx=null;
+function showIzinDetail(json){
+  var z; try{ z=JSON.parse(json); }catch(e){ return; }
+  showPopup('Izin — '+z.display_name,
+    '<div style="font-size:13.5px;line-height:1.7;margin-bottom:12px">'+
+      '<b>Tanggal:</b> '+fmtDateShort(z.date)+'<br>'+
+      '<b>Jenis:</b> '+z.jenis+'<br>'+
+      '<b>Keterangan:</b> '+(z.keterangan||'<span style="color:var(--brown-soft)">—</span>')+
+    '</div>'+
+    (z.photo_url?'<img src="'+driveImg(z.photo_url)+'" style="max-width:100%;border-radius:10px">'
+                :'<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px">Tidak ada foto bukti dilampirkan.</div>'));
+}
+window.showIzinDetail=showIzinDetail;
+
+function exportRekapCSV(){
+  if(!_rekapCtx) return;
+  var c=_rekapCtx;
+  var head=['Nama','Hari Kerja','Total Jam','Sakit','Unpaid Leave','Off/Tidak Tercatat'];
+  var lines=[['Toko',c.store.replace('SOYASUKA_','')].join(','),
+             ['Periode',c.from+' s/d '+c.to].join(','),'',head.join(',')];
+  c.rekap.forEach(function(k){
+    lines.push(['"'+String(k.nama).replace(/"/g,'""')+'"',k.hadir,k.jam.toFixed(1),k.sakit,k.unpaid,k.off].join(','));
+  });
+  var blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='Rekap_Absensi_'+c.store.replace('SOYASUKA_','')+'_'+c.from+'_'+c.to+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+window.exportRekapCSV=exportRekapCSV;
 function openAbsPhoto(url){
   if(!url){alert('Foto tidak tersedia');return;}
   showPopup('Foto Absensi','<img src="'+driveImg(url)+'" style="max-width:100%;border-radius:10px">');
@@ -1650,18 +1899,19 @@ window.filterResep=filterResep;
 // =========================================================
 // FORECASTING (Kalkulator Prep)
 // =========================================================
-function renderForecasting(c){
-  var bd=S.baseData; var rows=(bd&&bd.cogsCalc)||[];
-  var recapRows=(bd&&bd.recap)||[];
-  if(!rows.length||!recapRows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
-
-  // Struktur COGS CALC (kolom A KOSONG): B=nama, C=usage/yield qty, D=unit, E bisa 'Yield', H=cost
+// =========================================================
+// MESIN RESEP — dipakai bersama Kalkulator Prep & Variance Stok.
+// Sengaja satu sumber: kalau dua halaman pakai parser berbeda,
+// angkanya bisa beda dan tidak ada yang sadar.
+// Struktur COGS CALC (kolom A KOSONG): B=nama, C=usage/yield qty, D=unit, E bisa 'Yield'
+// =========================================================
+function buildRecipeIndex(rows){
   function isE(v){return v===''||v===null||v===undefined;}
   function n2(v){var n=Number(v);return isNaN(n)?0:n;}
   function isYieldRow(r){return String(r[4]).trim().toLowerCase()==='yield'||String(r[2]).trim().toLowerCase()==='yield'||String(r[3]).trim().toLowerCase()==='yield';}
   var KAT={'主体':1,'配料':1,'主題':1};
   var products={}; var curProd=null;
-  rows.forEach(function(r){
+  (rows||[]).forEach(function(r){
     var b=r[1];
     if(isE(b))return;
     var bStr=String(b).trim();
@@ -1673,6 +1923,47 @@ function renderForecasting(c){
     if(yieldRow){ curProd.displayName=bStr; curProd.yieldQty=n2(r[2]); curProd.yieldUnit=String(r[3]||''); products[bStr]=curProd; }
     else { curProd.ingredients.push({name:bStr,qty:n2(r[2]),unit:String(r[3]||'')}); }
   });
+  return products;
+}
+window.buildRecipeIndex=buildRecipeIndex;
+
+// Cocokkan nama menu (RECAP) ke resep (COGS CALC) — pencocokan longgar, sama spt Kalkulator Prep.
+function findRecipe(products,menuName){
+  var hit=null;
+  Object.keys(products||{}).forEach(function(k){
+    if(k.toUpperCase().indexOf(menuName.toUpperCase())>=0||menuName.toUpperCase().indexOf(k.toUpperCase())>=0) hit=products[k];
+  });
+  return hit;
+}
+window.findRecipe=findRecipe;
+
+// sales: [{name, porsi, serving}] → kebutuhan bahan mentah
+// Rumus: total = porsi × serving → batch = total / yield → bahan = usage/batch × batch
+function expectedUsage(products,sales){
+  var need={}, noRecipe=[], noServing=[];
+  (sales||[]).forEach(function(sv){
+    var n=Number(sv.porsi)||0; if(!n) return;
+    var prod=findRecipe(products,sv.name);
+    if(!prod||!prod.yieldQty){ noRecipe.push(sv.name); return; }
+    var serving=Number(sv.serving)||0;
+    if(!serving){ noServing.push(sv.name); return; }
+    var batches=(n*serving)/prod.yieldQty;
+    prod.ingredients.forEach(function(it){
+      var k=it.name.trim();
+      if(!need[k]) need[k]={qty:0,unit:it.unit};
+      need[k].qty+=it.qty*batches;
+    });
+  });
+  return {need:need,noRecipe:noRecipe,noServing:noServing};
+}
+window.expectedUsage=expectedUsage;
+
+function renderForecasting(c){
+  var bd=S.baseData; var rows=(bd&&bd.cogsCalc)||[];
+  var recapRows=(bd&&bd.recap)||[];
+  if(!rows.length||!recapRows.length){c.innerHTML='<div class="empty"><div class="ei">⏳</div></div>';return;}
+
+  var products=buildRecipeIndex(rows);
 
   // Build menu list from RECAP
   var menuItems=recapRows.slice(1).filter(function(r){return r[2]&&r[8]&&['MAIN','TOPPING','DRINK','DESSERT','SET'].indexOf(String(r[1]).toUpperCase())>=0;});
@@ -2105,6 +2396,252 @@ function filterPO(){
 }
 window.filterPO=filterPO;
 window.renderIncomingPO=renderIncomingPO;
+
+// =========================================================
+// VARIANCE STOK (Owner/Admin)
+//   Aktual   = SO awal + barang masuk (DO) − SO akhir
+//   Harusnya = (porsi terjual × resep) + wastage tercatat
+//   Variance = Aktual − Harusnya   → positif = ada yg hilang
+// =========================================================
+var VAR_CTX=null;
+async function renderVariance(c){
+  if(!needStore(c)) return;
+  if(!S.baseData) await loadBaseData();
+  var today=S.today;
+  var d=new Date(today+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-6);
+  var wk=d.toISOString().slice(0,10);
+  c.innerHTML='<div class="perf-date" style="margin-bottom:6px">'+
+    '<input type="date" id="vr-from" value="'+wk+'">'+
+    '<input type="date" id="vr-to" value="'+today+'" max="'+today+'">'+
+    '<button class="save-btn" onclick="loadVariance()">Muat Data</button></div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.55">Pilih rentang → isi berapa porsi tiap menu terjual selama rentang itu (ambil dari POS) → sistem bandingkan dengan pemakaian stok sebenarnya.</div>'+
+    '<div id="vr-content"><div class="empty"><div class="ei">🔍</div><div>Pilih rentang tanggal lalu klik Muat Data</div></div></div>';
+}
+window.renderVariance=renderVariance;
+
+async function loadVariance(){
+  var from=(document.getElementById('vr-from')||{}).value;
+  var to=(document.getElementById('vr-to')||{}).value;
+  var box=document.getElementById('vr-content');
+  if(!from||!to){ box.innerHTML='<div class="empty"><div class="ei">📅</div><div>Isi rentang tanggalnya dulu</div></div>'; return; }
+  if(from>to){ box.innerHTML='<div class="empty"><div class="ei">⚠️</div><div>Tanggal awal melewati tanggal akhir</div></div>'; return; }
+  box.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getVarianceData',token:S.token,store:S.store,from:from,to:to});
+    if(!r.ok){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div style="max-width:420px;margin:0 auto;line-height:1.6">'+r.error+'</div></div>'; return; }
+    VAR_CTX=r;
+    VAR_CTX.products=buildRecipeIndex(((S.baseData||{}).cogsCalc)||[]);
+
+    // Menu dari RECAP: C(2)=nama, B(1)=kategori, G(6)=serving/porsi, E(4)=unit serving
+    var recap=((S.baseData||{}).recap)||[];
+    var menus=recap.slice(1).filter(function(x){
+      return x[2]&&['MAIN','TOPPING','DRINK','DESSERT','SET'].indexOf(String(x[1]).toUpperCase())>=0;
+    }).map(function(x){ return {name:x[2],cat:String(x[1]).toUpperCase(),serving:Number(x[6])||0}; });
+    VAR_CTX.menus=menus;
+
+    var warnHtml=(r.warnings&&r.warnings.length)
+      ? '<div style="font-size:12px;color:var(--orange);background:#FDF1E7;border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">⚠ '+r.warnings.join('<br>⚠ ')+'</div>' : '';
+
+    var bycat={};
+    menus.forEach(function(m){ (bycat[m.cat]=bycat[m.cat]||[]).push(m); });
+
+    var inputs='';
+    Object.keys(bycat).forEach(function(cat){
+      inputs+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--gold);letter-spacing:1px;margin:14px 0 8px">'+cat+'</div>';
+      bycat[cat].forEach(function(m,i){
+        var idx=menus.indexOf(m);
+        inputs+='<div class="fc-row"><div class="fc-name">'+m.name+
+          '<div class="fc-hint">'+(m.serving?m.serving+' / porsi':'<span style="color:var(--orange)">serving belum diisi di RECAP</span>')+'</div></div>'+
+          '<input class="fc-inp vr-inp" type="number" min="0" placeholder="0" data-idx="'+idx+'" oninput="this.classList.toggle(\'filled\',!!+this.value);calcVariance()"></div>';
+      });
+    });
+
+    box.innerHTML=warnHtml+
+      '<div class="card" style="margin-bottom:14px">'+
+        '<div class="card-title">📅 Periode Efektif</div>'+
+        '<div style="font-size:13px;line-height:1.7">'+
+          'Pemakaian dihitung dari <b>'+fmtDateShort(r.soAwalDate)+'</b> (closing) sampai <b>'+fmtDateShort(r.soAkhirDate)+'</b> (closing).<br>'+
+          '<span style="color:var(--brown-soft);font-size:12px">Isi porsi terjual untuk hari <b>'+fmtDateShort(nextDay(r.soAwalDate))+' – '+fmtDateShort(r.soAkhirDate)+'</b> ('+daysBetween(r.soAwalDate,r.soAkhirDate)+' hari).</span>'+
+        '</div>'+
+      '</div>'+
+      '<div class="sec">🍵 Porsi Terjual (dari POS)</div>'+inputs+
+      '<button style="font-family:inherit;font-size:12.5px;color:var(--brown-soft);background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:8px 14px;cursor:pointer;margin:14px 0 18px" onclick="document.querySelectorAll(\'.vr-inp\').forEach(function(i){i.value=\'\';i.classList.remove(\'filled\')});calcVariance()">Reset</button>'+
+      '<div id="vr-result"><div class="empty" style="padding:20px"><div class="ei">🔍</div><div>Isi porsi terjual di atas</div></div></div>';
+  }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
+}
+window.loadVariance=loadVariance;
+
+function nextDay(d){ var x=new Date(d+'T00:00:00Z'); x.setUTCDate(x.getUTCDate()+1); return x.toISOString().slice(0,10); }
+function daysBetween(a,b){ return Math.round((new Date(b+'T00:00:00Z')-new Date(a+'T00:00:00Z'))/86400000); }
+
+function calcVariance(){
+  var res=document.getElementById('vr-result'); if(!res||!VAR_CTX) return;
+  var sales=[];
+  document.querySelectorAll('.vr-inp').forEach(function(inp){
+    var n=Number(inp.value)||0; if(!n) return;
+    var m=VAR_CTX.menus[Number(inp.dataset.idx)];
+    if(m) sales.push({name:m.name,porsi:n,serving:m.serving});
+  });
+  if(!sales.length){ res.innerHTML='<div class="empty" style="padding:20px"><div class="ei">🔍</div><div>Isi porsi terjual di atas</div></div>'; return; }
+
+  var ex=expectedUsage(VAR_CTX.products,sales);
+  // peta harapan pakai nama huruf kecil biar cocok dgn ING MASTER
+  var expMap={};
+  Object.keys(ex.need).forEach(function(k){ expMap[k.toLowerCase()]={qty:ex.need[k].qty,unit:ex.need[k].unit}; });
+
+  var rows=[], totalRp=0, unitBeda=[], tanpaResep=[];
+  VAR_CTX.items.forEach(function(it){
+    var e=expMap[it.name.toLowerCase()];
+    var expected=e?e.qty:0;
+    // Bahan tak tersentuh resep & tak bergerak → tak perlu ditampilkan
+    var aktual=it.soAwal+it.masuk-it.soAkhir;
+    if(!e && Math.abs(aktual)<0.0001 && !it.waste) return;
+    if(!e && expected===0 && aktual>0) tanpaResep.push(it.name);
+    if(e && e.unit && it.unit && String(e.unit).trim().toLowerCase()!==String(it.unit).trim().toLowerCase()){
+      unitBeda.push(it.name+' (resep: '+e.unit+' vs stok: '+it.unit+')');
+    }
+    var harusnya=expected+it.waste;
+    var vr=aktual-harusnya;
+    // Harga ING MASTER = per PACK → per unit dasar = price / fullPax
+    var perUnit=(it.fullPax>0&&it.price>0)?(it.price/it.fullPax):0;
+    var rp=vr*perUnit;
+    totalRp+=rp;
+    rows.push({name:it.name,unit:it.unit,soAwal:it.soAwal,masuk:it.masuk,soAkhir:it.soAkhir,
+               aktual:aktual,expected:expected,waste:it.waste,harusnya:harusnya,vr:vr,rp:rp,
+               pct:harusnya>0?(vr/harusnya*100):0, noPrice:!(perUnit>0)});
+  });
+
+  rows.sort(function(a,b){ return b.rp-a.rp; });
+
+  function num(n){ return (Math.round(n*10)/10).toLocaleString('id-ID'); }
+  var body=rows.map(function(k){
+    var warna=k.vr>0.0001?'var(--red)':(k.vr<-0.0001?'var(--blue)':'var(--brown-soft)');
+    var tanda=k.vr>0.0001?'+':'';
+    return '<tr>'+
+      '<td style="font-weight:600">'+k.name+'<div style="font-size:10.5px;color:var(--brown-soft);font-weight:400">'+num(k.soAwal)+' + '+num(k.masuk)+' − '+num(k.soAkhir)+'</div></td>'+
+      '<td style="text-align:right;white-space:nowrap">'+num(k.aktual)+' <span style="font-size:10px;color:var(--brown-soft)">'+k.unit+'</span></td>'+
+      '<td style="text-align:right;white-space:nowrap">'+num(k.harusnya)+(k.waste?'<div style="font-size:10px;color:var(--brown-soft)">incl. waste '+num(k.waste)+'</div>':'')+'</td>'+
+      '<td style="text-align:right;white-space:nowrap;font-weight:700;color:'+warna+'">'+tanda+num(k.vr)+
+        (Math.abs(k.pct)>0.05?'<div style="font-size:10px;font-weight:600">'+tanda+k.pct.toFixed(1)+'%</div>':'')+'</td>'+
+      '<td style="text-align:right;white-space:nowrap;font-weight:700;color:'+warna+'">'+(k.noPrice?'<span style="color:var(--orange)">—</span>':tanda+rupiah(k.rp))+'</td>'+
+    '</tr>';
+  }).join('');
+
+  var notes='';
+  if(ex.noRecipe.length) notes+='<div class="est-warn">⚠ Belum ada resep di COGS CALC: <b>'+ex.noRecipe.join(', ')+'</b>. Porsinya tidak ikut dihitung, jadi bahannya terlihat lebih boros dari aslinya.</div>';
+  if(ex.noServing.length) notes+='<div class="est-warn">⚠ Serving/porsi belum diisi di RECAP kolom G: <b>'+ex.noServing.join(', ')+'</b>. Porsinya tidak ikut dihitung.</div>';
+  if(unitBeda.length) notes+='<div class="est-warn">⚠ <b>Satuan resep beda dengan satuan stok</b>: '+unitBeda.join(', ')+'. Angka variance bahan ini TIDAK bisa dipercaya sampai satuannya disamakan.</div>';
+  if(tanpaResep.length) notes+='<div class="est-warn">⚠ Stok berkurang tapi tidak ada di resep mana pun: <b>'+tanpaResep.slice(0,8).join(', ')+(tanpaResep.length>8?', dll':'')+'</b>. Wajar untuk kemasan/sedotan, tapi cek kalau ini bahan utama.</div>';
+
+  res.innerHTML=
+    '<div class="card" style="margin-bottom:14px;text-align:center">'+
+      '<div class="rk-lbl">Estimasi Nilai Selisih</div>'+
+      '<div style="font-size:30px;font-weight:800;line-height:1.3;color:'+(totalRp>0?'var(--red)':'var(--green)')+'">'+(totalRp>0?'':'')+rupiah(totalRp)+'</div>'+
+      '<div style="font-size:12px;color:var(--brown-soft);margin-top:2px">'+(totalRp>0?'nilai stok yang tidak bisa dijelaskan':'pemakaian lebih hemat dari resep')+'</div>'+
+    '</div>'+notes+
+    '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:640px"><thead><tr>'+
+      '<th>Bahan<div style="font-size:9px;font-weight:400;opacity:.7">awal + masuk − akhir</div></th>'+
+      '<th style="text-align:right">Aktual<br><span style="font-size:9px;font-weight:400;opacity:.7">kepakai</span></th>'+
+      '<th style="text-align:right">Harusnya<br><span style="font-size:9px;font-weight:400;opacity:.7">resep + waste</span></th>'+
+      '<th style="text-align:right">Selisih</th><th style="text-align:right">Nilai</th>'+
+    '</tr></thead><tbody>'+body+'</tbody></table></div>'+
+    '<div style="font-size:11.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:12px;line-height:1.55">'+
+      '<b style="color:var(--red)">Merah (+)</b> = kepakai lebih banyak dari yang seharusnya → kemungkinan takaran berlebih, tumpah tanpa lapor, atau penjualan tidak masuk kasir.<br>'+
+      '<b style="color:var(--blue)">Biru (−)</b> = kepakai lebih sedikit → biasanya salah hitung SO, atau barang masuk belum tercatat di DO.<br>'+
+      'Angka ini <b>petunjuk, bukan vonis</b>. Selisih kecil itu normal.'+
+    '</div>';
+}
+window.calcVariance=calcVariance;
+
+// =========================================================
+// RIWAYAT ORDER (toko) — status PO yg mereka ajukan
+// =========================================================
+var OH_LIST=[];
+async function renderOrderHistory(c){
+  if(!needStore(c)) return;
+  c.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getPOHistory',token:S.token,store:S.store});
+    if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    OH_LIST=r.data||[];
+    if(!OH_LIST.length){c.innerHTML='<div class="empty"><div class="ei">📭</div><div>Belum pernah mengajukan order</div></div>';return;}
+
+    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">Status order yang kamu ajukan. Kalau sudah <b>Diproses</b>, klik <b>Lihat</b> untuk cek jumlah yang benar-benar dikirim — kadang berbeda dari yang dipesan.</div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:720px">'+
+      '<thead><tr><th>Order ID</th><th>Tanggal</th><th style="text-align:center">Item</th><th>Status</th><th>No. DO</th><th>Detail</th></tr></thead>'+
+      '<tbody>'+OH_LIST.map(function(po,i){
+        var st=po.status||'Baru';
+        var badge=st==='Selesai'?'<span class="tag green">Selesai</span>'
+                 :st==='Diproses'?'<span class="tag blue">Diproses</span>'
+                 :'<span class="tag gold">Menunggu</span>';
+        // Tandai kalau ada qty yg direvisi admin — ini info yg selama ini tidak pernah sampai ke toko.
+        var revised=0;
+        if(po.sentItems&&po.sentItems.length){
+          po.sentItems.forEach(function(it){ if(Number(it.sent)!==Number(it.qty)) revised++; });
+        }
+        return '<tr>'+
+          '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
+          '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
+          '<td style="text-align:center">'+po.items.length+'</td>'+
+          '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
+          '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
+          '<td><button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button></td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+}
+window.renderOrderHistory=renderOrderHistory;
+
+function openOrderDetail(i){
+  var po=OH_LIST[i]; if(!po) return;
+  var st=po.status||'Baru';
+  var diproses=(st==='Diproses'||st==='Selesai')&&po.sentItems&&po.sentItems.length;
+
+  // Belum diproses → cuma jumlah pesanan.
+  // Sudah  → Dipesan vs Dikirim, biar selisihnya kelihatan.
+  var src=diproses?po.sentItems:po.items;
+  var rows=src.map(function(it){
+    var pax=(it.fullPax!==''&&it.fullPax!==null&&it.fullPax!==undefined)
+      ? '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+Number(it.fullPax).toLocaleString('id-ID')+' '+(it.unit||'')+' / pack</div>' : '';
+    if(!diproses){
+      return '<tr><td style="font-weight:600">'+it.name+pax+'</td><td style="text-align:center;font-weight:700">'+it.qty+'</td></tr>';
+    }
+    var sent=Number(it.sent||0), ord=Number(it.qty||0);
+    var beda=sent!==ord;
+    var kirim=beda?'<b style="color:'+(sent<ord?'var(--orange)':'var(--green)')+'">'+sent+'</b>':'<b>'+sent+'</b>';
+    return '<tr'+(sent===0?' style="opacity:.5"':'')+'>'+
+      '<td style="font-weight:600">'+it.name+pax+'</td>'+
+      '<td style="text-align:center;color:var(--brown-soft)">'+ord+'</td>'+
+      '<td style="text-align:center">'+kirim+(beda?' <span style="font-size:10px;color:var(--orange)">('+(sent>ord?'+':'')+(sent-ord)+')</span>':'')+'</td>'+
+    '</tr>';
+  }).join('');
+
+  var info='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.6">';
+  if(st==='Baru'){
+    info+='⏳ <b>Menunggu diproses</b> — order sudah masuk, belum dikerjakan admin.';
+  } else {
+    info+='📦 <b>'+(st==='Selesai'?'Selesai':'Sudah diproses')+'</b> · DO <b>'+(po.do_id||'-')+'</b><br>'+
+          'Diproses oleh '+(po.processed_by||'-')+' · '+(po.processed_at||'-');
+    if(st==='Selesai') info+='<br>Ditandai selesai oleh '+(po.completed_by||'-')+' · '+(po.completed_at||'-');
+  }
+  info+='</div>';
+
+  var head=diproses
+    ? '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th><th style="text-align:center">Dikirim</th></tr>'
+    : '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th></tr>';
+
+  var btns='<button class="ftab" style="width:100%;margin-top:12px;padding:9px" onclick="downloadOHPO('+i+')">⬇ Download PO (PDF)</button>';
+  if(diproses) btns+='<button class="ftab" style="width:100%;margin-top:8px;padding:9px;border-color:var(--blue);color:var(--blue)" onclick="downloadOHDO('+i+')">⬇ Download DO (PDF)</button>';
+
+  showPopup('Order '+po.order_id,
+    info+'<div class="tbl-wrap"><table class="tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+btns, true);
+}
+window.openOrderDetail=openOrderDetail;
+
+async function downloadOHPO(i){ var po=OH_LIST[i]; if(!po)return; try{ await loadPdfLib(); buildPOPdf(po).save(poFileName(po)); }catch(e){ alert('Gagal: '+e.message); } }
+window.downloadOHPO=downloadOHPO;
+async function downloadOHDO(i){ var po=OH_LIST[i]; if(!po)return; try{ await loadPdfLib(); buildDocPdf(po,'DO').save(poFileName(po,'DO')); }catch(e){ alert('Gagal: '+e.message); } }
+window.downloadOHDO=downloadOHDO;
 
 // ========================= PDF PURCHASE ORDER (A4) =========================
 // jsPDF dimuat hanya saat dibutuhkan (Preview/Download) — bukan saat buka app
