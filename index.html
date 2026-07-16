@@ -239,6 +239,12 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .abs-photo-card .apc-sub{font-size:11.5px;color:var(--brown-soft)}
 .abs-photo-card img{max-width:100%;border-radius:10px;max-height:140px;object-fit:cover;margin-top:8px}
 .abs-photo-card input{display:none}
+.abs-cam{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:3/4;max-height:260px;margin:0 auto}
+.abs-cam video{width:100%;height:100%;object-fit:cover;display:block;transform:scaleX(-1)}
+.abs-cam img{width:100%;height:100%;object-fit:cover;display:block;margin:0;border-radius:0;max-height:none}
+.abs-cam-err{display:flex;align-items:center;justify-content:center;height:100%;padding:14px;color:#fff;font-size:11.5px;line-height:1.5;text-align:center;background:var(--surface2);color:var(--brown-deep)}
+.abs-cam-btn{width:100%;margin-top:8px;padding:9px;border:1.5px solid var(--line);background:var(--surface2);color:var(--brown-deep);border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.abs-cam-btn:hover{border-color:var(--gold)}
 
 /* Cek Absensi AM */
 .abs-filter{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
@@ -643,6 +649,7 @@ async function loadStoreData(store,date,force){
 
 // ── PAGE ROUTER ──
 async function renderPage(id){
+  try{ if(window.absStopCams) absStopCams(); }catch(e){}
   var c=document.getElementById('content'); c.innerHTML='';
   switch(id){
     case 'dashboard': await renderDashboard(c); break;
@@ -1119,7 +1126,7 @@ async function submitWastage(){
   if(reason==='Lainnya'&&!notes){showWM('Alasan "Lainnya" wajib mengisi Catatan','err');var nn=document.getElementById('wst-notes');if(nn)nn.focus();return;}
   var btn=document.querySelector('.card .save-btn');if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   var photo_url='';
-  if(wstPhoto){try{var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,photo_base64:wstPhoto,filename:'wastage_'+Date.now()+'.jpg'});if(pr.ok)photo_url=pr.url;}catch(e){}}
+  if(wstPhoto){try{var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,photo_base64:wstPhoto,subfolder:'WASTAGE',filename:'wastage_'+S.today+'_'+Date.now()+'.jpg'});if(pr.ok)photo_url=pr.url;}catch(e){}}
   try{
     var r=await api({action:'saveWastage',token:S.token,store:S.store,date:document.getElementById('wst-date').value,item_name:item,quantity:qty,unit:document.getElementById('wst-unit').value,reason:reason,photo_url:photo_url,notes:document.getElementById('wst-notes').value});
     if(r.ok){showWM('✅ Wastage tersimpan','ok');wstPhoto=null;setTimeout(function(){navigateTo('wastage');},1200);}
@@ -1290,11 +1297,11 @@ async function renderAbsensi(c){
     }
     return '<div class="card" style="margin-bottom:0">'+
       '<div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:10px">'+label+'</div>'+
-      '<div class="abs-photo-card" onclick="document.getElementById(\'abs-'+type+'\').click()">'+
-      '<div id="abs-'+type+'-preview"><div class="apc-ico">📷</div><div class="apc-sub">Tap untuk selfie</div></div>'+
-      '<input type="file" id="abs-'+type+'" accept="image/*" capture="user" onchange="handleAbsPhoto(this,\''+type+'\')">'+
+      '<div class="abs-cam" id="abs-cam-'+type+'">'+
+      '<video id="abs-vid-'+type+'" playsinline autoplay muted></video>'+
       '</div>'+
-      '<button class="save-btn" style="width:100%;margin-top:10px;'+btnBg+'" onclick="saveAbsensiType(\''+type+'\')">'+btnLbl+'</button>'+
+      '<button class="abs-cam-btn" id="abs-snap-'+type+'" onclick="absSnap(\''+type+'\')">📷 Ambil Selfie</button>'+
+      '<button class="save-btn" style="width:100%;margin-top:8px;'+btnBg+'" onclick="saveAbsensiType(\''+type+'\')">'+btnLbl+'</button>'+
       '<div id="abs-'+type+'-msg" class="save-msg"></div>'+
       '</div>';
   }
@@ -1304,14 +1311,72 @@ async function renderAbsensi(c){
   '<div class="fg"><label>Nama</label><input class="fi2" value="'+S.user.display_name+'" readonly></div>'+
   '<div class="fg"><label>Tanggal</label><input class="fi2" value="'+fmtDate(S.today)+'" readonly></div>'+
   '</div>'+
-  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--orange);border-radius:8px;padding:10px 12px;margin-top:12px;line-height:1.5">📸 <b>Wajib selfie</b> dengan <b>atribut lengkap</b> (seragam/apron) dan pastikan <b>background terlihat berada di lokasi toko</b>. Foto tanpa atribut atau bukan di lokasi toko dianggap tidak sah.</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-deep);background:var(--surface2);border-left:3px solid var(--orange);border-radius:8px;padding:10px 12px;margin-top:12px;line-height:1.5">📸 <b>Wajib selfie langsung dari kamera</b> — upload dari galeri tidak tersedia. Pakai <b>atribut lengkap</b> (seragam/apron) dan pastikan <b>background terlihat berada di lokasi toko</b>. Foto tanpa atribut atau bukan di lokasi toko dianggap tidak sah.</div>'+
   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">'+
   slot('ci')+slot('co')+
   '</div>'+
   '</div>';
+  // Nyalakan kamera hanya utk slot yg belum diabsen
+  ['ci','co'].forEach(function(t){ if(document.getElementById('abs-cam-'+t)) absStartCam(t); });
 }
-function handleAbsPhoto(inp,type){var f=inp.files[0];if(!f)return;var r=new FileReader();r.onload=function(e){var img=new Image();img.onload=function(){var canvas=document.createElement('canvas');var max=1200;var w=img.width,h=img.height;if(w>max){h=h*max/w;w=max;}if(h>max){w=w*max/h;h=max;}canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);absPhotos[type]=canvas.toDataURL('image/jpeg',0.75);var prev=document.getElementById('abs-'+type+'-preview');if(prev)prev.innerHTML='<img class="photo-preview" src="'+absPhotos[type]+'">';};img.src=e.target.result;};r.readAsDataURL(f);}
-window.handleAbsPhoto=handleAbsPhoto;
+// ── LIVE CAMERA ABSENSI ──
+// Sengaja TIDAK pakai <input type=file>: upload dari galeri harus mustahil,
+// termasuk saat dibuka dari laptop. Semua foto wajib hasil jepret langsung.
+var absStreams={};
+function absStopCams(){Object.keys(absStreams).forEach(function(k){try{absStreams[k].getTracks().forEach(function(t){t.stop();});}catch(e){}delete absStreams[k];});}
+window.absStopCams=absStopCams;
+
+async function absStartCam(type){
+  var box=document.getElementById('abs-cam-'+type);
+  var vid=document.getElementById('abs-vid-'+type);
+  if(!box||!vid)return;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    box.innerHTML='<div class="abs-cam-err">Browser ini tidak mendukung kamera.<br>Buka lewat Chrome / Safari versi terbaru.</div>';
+    return;
+  }
+  try{
+    var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:960}},audio:false});
+    absStreams[type]=st; vid.srcObject=st; await vid.play();
+  }catch(e){
+    var why=(e&&e.name==='NotAllowedError')?'Izin kamera ditolak. Aktifkan lewat ikon 🔒 di address bar, lalu refresh.'
+           :(e&&e.name==='NotFoundError')?'Kamera tidak terdeteksi di perangkat ini.'
+           :'Kamera gagal dibuka: '+((e&&e.message)||'unknown');
+    box.innerHTML='<div class="abs-cam-err">'+why+'</div>';
+  }
+}
+
+function absSnap(type){
+  var vid=document.getElementById('abs-vid-'+type);
+  var box=document.getElementById('abs-cam-'+type);
+  var btn=document.getElementById('abs-snap-'+type);
+  if(vid&&vid.srcObject&&vid.videoWidth){
+    var max=800,w=vid.videoWidth,h=vid.videoHeight;
+    if(w>max){h=h*max/w;w=max;} if(h>max){w=w*max/h;h=max;}
+    var cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    var cx=cv.getContext('2d');
+    cx.translate(w,0);cx.scale(-1,1); // un-mirror: simpan sesuai aslinya
+    cx.drawImage(vid,0,0,w,h);
+    absPhotos[type]=cv.toDataURL('image/jpeg',0.7);
+    try{absStreams[type].getTracks().forEach(function(t){t.stop();});}catch(e){}
+    delete absStreams[type];
+    box.innerHTML='<img src="'+absPhotos[type]+'">';
+    if(btn){btn.textContent='🔄 Ulangi Foto';btn.setAttribute('onclick',"absRetake('"+type+"')");}
+  } else {
+    var m=document.getElementById('abs-'+type+'-msg');
+    if(m){m.textContent='❌ Kamera belum siap';m.className='save-msg err';}
+  }
+}
+window.absSnap=absSnap;
+
+function absRetake(type){
+  absPhotos[type]=null;
+  var box=document.getElementById('abs-cam-'+type);
+  var btn=document.getElementById('abs-snap-'+type);
+  if(box)box.innerHTML='<video id="abs-vid-'+type+'" playsinline autoplay muted></video>';
+  if(btn){btn.textContent='📷 Ambil Selfie';btn.setAttribute('onclick',"absSnap('"+type+"')");}
+  absStartCam(type);
+}
+window.absRetake=absRetake;
 async function saveAbsensiType(type){
   var msgId='abs-'+type+'-msg';
   if(!absPhotos[type]){var m=document.getElementById(msgId);if(m){m.textContent='❌ Foto wajib diambil dulu';m.className='save-msg err';}return;}
@@ -1322,7 +1387,8 @@ async function saveAbsensiType(type){
   var photoUrl='';
   var upErr='';
   try{
-    var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,photo_base64:absPhotos[type],filename:'absensi_'+type+'_'+S.user.username+'_'+Date.now()+'.jpg'});
+    var fn='absensi_'+type+'_'+String(S.user.username).replace(/[^0-9A-Za-z_-]/g,'')+'_'+S.today+'.jpg';
+    var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,subfolder:'ABSENSI',photo_base64:absPhotos[type],filename:fn});
     if(pr&&pr.ok)photoUrl=pr.url; else upErr=(pr&&pr.error)||'upload foto gagal';
   }catch(e){upErr=e.message;}
   if(upErr){var em=document.getElementById(msgId);if(em){em.textContent='❌ Foto gagal diupload: '+upErr;em.className='save-msg err';}if(btn){btn.disabled=false;btn.textContent=btnText;}return;}
@@ -2010,7 +2076,7 @@ function buildDocPdf(po,kind){
 function buildPOPdf(po){ return buildDocPdf(po,'PO'); }
 function poFileName(po,kind){
   var id=(kind==='DO')?(po.do_id||po.order_id):po.order_id;
-  return (kind==='DO'?'DO_':'PO_')+String(po.store||'').replace('SOYASUKA_','')+'_'+String(id||'').replace(/[^0-9A-Za-z]/g,'-')+'.pdf';
+  return 'SS_'+String(po.store||'').replace('SOYASUKA_','')+'_'+String(id||'').replace(/[^0-9A-Za-z]/g,'-')+'.pdf';
 }
 async function downloadDO(i){
   var po=PO_LIST[i]; if(!po) return;
