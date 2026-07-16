@@ -2405,7 +2405,7 @@ window.renderIncomingPO=renderIncomingPO;
 // =========================================================
 var VAR_CTX=null;
 async function renderVariance(c){
-  if(!needStore(c)) return;
+  if(!ensureStore(c)) return;
   if(!S.baseData) await loadBaseData();
   var today=S.today;
   var d=new Date(today+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-6);
@@ -2558,7 +2558,7 @@ window.calcVariance=calcVariance;
 // =========================================================
 var OH_LIST=[];
 async function renderOrderHistory(c){
-  if(!needStore(c)) return;
+  if(!ensureStore(c)) return;
   c.innerHTML=LOADING;
   try{
     var r=await api({action:'getPOHistory',token:S.token,store:S.store});
@@ -2801,6 +2801,12 @@ async function downloadDO(i){
 }
 window.downloadDO=downloadDO;
 // previewPO dihapus — kolom Preview sudah tidak ada di tabel Incoming PO.
+// downloadPO TETAP dipakai (tombol ⬇ PDF di Incoming PO).
+async function downloadPO(i){
+  var po=PO_LIST[i]; if(!po) return;
+  try{ await loadPdfLib(); buildPOPdf(po).save(poFileName(po)); }
+  catch(e){ alert('Gagal membuat PDF: '+e.message); }
+}
 window.downloadPO=downloadPO;
 
 // ========================= NOTIFIKASI PO (lonceng) =========================
