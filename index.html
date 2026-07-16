@@ -590,6 +590,10 @@ var NAV_DEFS = {
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
+  ],
+  HR:[
+    {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
+    {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:'Monitoring'},
   ]
 };
 
@@ -752,6 +756,17 @@ async function renderDashboard(c){
       var ydayStr=yday.toISOString().split('T')[0];
       loadStoreData(S.store,ydayStr).then(function(yd){ if(yd&&yd.reportSales){ document.getElementById('d-sales-yday').innerHTML='<div class="kpi-label">Sales Kemarin</div><div class="kpi-val">'+fmtRp(yd.reportSales[9])+'</div>'; document.getElementById('d-txn-yday').innerHTML='<div class="kpi-label">Transaksi Kemarin</div><div class="kpi-val">'+(yd.reportSales[10]||0)+'</div>'; } });
     }
+  } else if(u.role==='HR'){
+    // HR dashboard — sengaja tanpa pemilih toko & tanpa angka sales.
+    // Toko dipilih langsung di halaman Cek Absensi.
+    c.innerHTML='<div style="font-size:18px;font-weight:700;color:var(--brown-deep);margin-bottom:4px">Hai, '+u.display_name.split(' ')[0]+'! 👋</div>'+
+    '<div style="font-size:13px;color:var(--brown-soft);margin-bottom:18px">'+fmtDate(S.today)+'</div>'+
+    '<div class="card" style="text-align:center;padding:26px 20px">'+
+      '<div style="font-size:38px;margin-bottom:8px">🕐</div>'+
+      '<div style="font-size:15px;font-weight:700;color:var(--brown-deep);margin-bottom:4px">Cek Absensi</div>'+
+      '<div style="font-size:13px;color:var(--brown-soft);line-height:1.55;margin-bottom:16px">Lihat rekap clock in &amp; clock out crew per toko, lengkap dengan foto selfie-nya.</div>'+
+      '<button class="save-btn" style="width:100%;max-width:260px" onclick="navigateTo(\'cek-absensi\')">Buka Cek Absensi</button>'+
+    '</div>';
   } else {
     // Owner/AM dashboard
     var storeSel='<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">'+
