@@ -566,6 +566,7 @@ var NAV_DEFS = {
     {id:'so',ico:'📦',lbl:'Stock Opname',sec:''},
     {id:'order',ico:'🛒',lbl:'Order',sec:''},
     {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
+    {id:'manual-inbound',ico:'📦',lbl:'Inbound Manual',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
@@ -640,7 +641,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -719,6 +720,7 @@ async function renderPage(id){
     case 'order': renderOrder(c); break;
     case 'incoming-po': renderIncomingPO(c); break;
     case 'order-history': await renderOrderHistory(c); break;
+    case 'manual-inbound': await renderManualInbound(c); break;
     case 'variance': await renderVariance(c); break;
     case 'laporan': renderLaporan(c); break;
     case 'laporan-view': renderLaporanView(c); break;
@@ -2568,6 +2570,92 @@ window.exportVarianceCSV=exportVarianceCSV;
 function round1(n){ return Math.round((Number(n)||0)*10)/10; }
 
 // =========================================================
+// INBOUND MANUAL — staff catat barang beli sendiri (urgent, di luar PO admin)
+// Qty dalam SATUAN DASAR bahan (gr/ml/pcs). Masuk ke Variance sbg barang masuk.
+// =========================================================
+async function renderManualInbound(c){
+  if(!ensureStore(c)) return;
+  var sd=await loadStoreData(S.store);
+  var ingList=(sd&&sd.ingList)||[];
+  var opts='<option value="">— Pilih bahan —</option>'+ingList.map(function(i){
+    return '<option value="'+String(i.name).replace(/"/g,'&quot;')+'" data-unit="'+(i.unit||'')+'">'+i.name+(i.unit?' ('+i.unit+')':'')+'</option>';
+  }).join('');
+
+  c.innerHTML='<div class="card">'+
+    '<div class="card-title">📦 Inbound Manual</div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.55">Untuk barang yang dibeli sendiri di luar kiriman admin (misal beli urgent di toko terdekat). Qty diisi dalam <b>satuan dasar bahannya</b> (gram/ml/pcs), bukan pack. Barang ini ikut dihitung sebagai barang masuk di Variance Stok.</div>'+
+    '<div class="form-grid">'+
+    '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="mi-date" value="'+S.today+'" max="'+S.today+'"></div>'+
+    '<div class="fg"><label>Bahan</label><select class="fi2" id="mi-item" onchange="miFillUnit()">'+opts+'</select></div>'+
+    '<div class="fg"><label>Qty</label><input class="fi2" type="number" min="0" id="mi-qty" placeholder="0"></div>'+
+    '<div class="fg"><label>Satuan</label><input class="fi2" id="mi-unit" readonly placeholder="–"></div>'+
+    '<div class="fg full"><label>Keterangan</label><input class="fi2" id="mi-ket" placeholder="Contoh: beli di Indomaret, stok taro habis" maxlength="200"></div>'+
+    '</div>'+
+    '<button class="save-btn" style="width:100%;margin-top:12px" onclick="submitManualInbound()">+ Simpan Inbound Manual</button>'+
+    '<div id="mi-msg" class="save-msg"></div>'+
+    '</div>'+
+    '<div class="sec" style="margin-top:20px">Riwayat Bulan Ini</div>'+
+    '<div id="mi-list">'+LOADING+'</div>';
+  loadManualInbound();
+}
+window.renderManualInbound=renderManualInbound;
+
+function miFillUnit(){
+  var sel=document.getElementById('mi-item');
+  var u=sel&&sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].dataset.unit:'';
+  var f=document.getElementById('mi-unit'); if(f)f.value=u||'';
+}
+window.miFillUnit=miFillUnit;
+
+async function submitManualInbound(){
+  var msg=document.getElementById('mi-msg');
+  function err(t){ if(msg){msg.textContent='❌ '+t;msg.className='save-msg err';} }
+  var date=(document.getElementById('mi-date')||{}).value||'';
+  var item=(document.getElementById('mi-item')||{}).value||'';
+  var unit=(document.getElementById('mi-unit')||{}).value||'';
+  var qty=Number((document.getElementById('mi-qty')||{}).value)||0;
+  var ket=((document.getElementById('mi-ket')||{}).value||'').trim();
+  if(!item) return err('Pilih bahan dulu');
+  if(!(qty>0)) return err('Qty harus lebih dari 0');
+  var btn=document.querySelector('[onclick="submitManualInbound()"]');
+  if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  try{
+    var r=await api({action:'saveManualInbound',token:S.token,store:S.store,date:date,item_name:item,unit:unit,qty:qty,keterangan:ket});
+    if(r&&r.ok){
+      if(msg){msg.textContent='✅ Tersimpan';msg.className='save-msg ok';}
+      var q=document.getElementById('mi-qty'); if(q)q.value='';
+      var k=document.getElementById('mi-ket'); if(k)k.value='';
+      var it=document.getElementById('mi-item'); if(it)it.value='';
+      var un=document.getElementById('mi-unit'); if(un)un.value='';
+      loadManualInbound();
+    } else err((r&&r.error)||'Gagal menyimpan');
+  }catch(e){ err(e.message); }
+  if(btn){btn.disabled=false;btn.textContent='+ Simpan Inbound Manual';}
+}
+window.submitManualInbound=submitManualInbound;
+
+async function loadManualInbound(){
+  var box=document.getElementById('mi-list'); if(!box) return;
+  try{
+    var month=S.today.slice(0,7);
+    var r=await api({action:'getManualInbound',token:S.token,store:S.store,month:month});
+    var rows=(r&&r.data)||[];
+    if(!rows.length){ box.innerHTML='<div class="empty" style="padding:20px"><div class="ei">📭</div><div>Belum ada inbound manual bulan ini</div></div>'; return; }
+    box.innerHTML='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Bahan</th><th style="text-align:right">Qty</th><th>Keterangan</th><th>Oleh</th></tr></thead><tbody>'+
+      rows.map(function(x){
+        return '<tr>'+
+          '<td style="white-space:nowrap">'+fmtDateShort(x.date)+'</td>'+
+          '<td style="font-weight:600">'+x.item_name+'</td>'+
+          '<td style="text-align:right;white-space:nowrap;font-weight:700">'+Number(x.qty).toLocaleString('id-ID')+' <span style="font-size:10px;color:var(--brown-soft);font-weight:400">'+(x.unit||'')+'</span></td>'+
+          '<td style="font-size:12px;color:var(--brown-soft)">'+(x.keterangan||'')+'</td>'+
+          '<td style="font-size:12px;color:var(--brown-soft)">'+(x.by||'')+'</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){ box.innerHTML='<div class="empty" style="padding:14px"><div>Gagal memuat</div></div>'; }
+}
+window.loadManualInbound=loadManualInbound;
+
+// =========================================================
 // RIWAYAT ORDER (toko) — status PO yg mereka ajukan
 // =========================================================
 var OH_LIST=[];
@@ -2667,18 +2755,25 @@ function openInbound(i){
   // Default qty diterima = qty dikirim admin. Staff tinggal cek, ubah kalau beda.
   var rows=src.map(function(it,idx){
     var sent=Number(it.sent!==undefined?it.sent:it.qty)||0;
+    var ord=Number(it.qty)||0;                 // qty DIPESAN (sebelum admin revisi)
+    var direvisi=(it.sent!==undefined)&&(sent!==ord);
     var pax=(it.fullPax!==''&&it.fullPax!==null&&it.fullPax!==undefined)
       ? '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+Number(it.fullPax).toLocaleString('id-ID')+' '+(it.unit||'')+' / pack</div>' : '';
+    // Kolom Dikirim: kalau admin merevisi, tandai oranye + selisihnya (sama spt di "Lihat")
+    var kirimCell=direvisi
+      ? '<b style="color:var(--orange)">'+sent+'</b> <span style="font-size:10px;color:var(--orange)">('+(sent>ord?'+':'')+(sent-ord)+')</span>'
+      : sent;
     return '<tr>'+
       '<td style="font-weight:600">'+it.name+pax+'</td>'+
-      '<td style="text-align:center;color:var(--brown-soft);white-space:nowrap">'+sent+' pack</td>'+
-      '<td style="text-align:center"><input class="fi2 ib-inp" type="number" min="0" style="width:78px;text-align:center;padding:6px" value="'+sent+'" data-name="'+String(it.name).replace(/"/g,'&quot;')+'" data-sent="'+sent+'" data-pax="'+(Number(it.fullPax)||0)+'" data-unit="'+(it.unit||'')+'" oninput="ibMark(this)"></td>'+
+      '<td style="text-align:center;color:var(--brown-soft);white-space:nowrap">'+ord+'</td>'+
+      '<td style="text-align:center;white-space:nowrap">'+kirimCell+'</td>'+
+      '<td style="text-align:center"><input class="fi2 ib-inp" type="number" min="0" style="width:74px;text-align:center;padding:6px" value="'+sent+'" data-name="'+String(it.name).replace(/"/g,'&quot;')+'" data-sent="'+sent+'" data-pax="'+(Number(it.fullPax)||0)+'" data-unit="'+(it.unit||'')+'" oninput="ibMark(this)"></td>'+
     '</tr>';
   }).join('');
 
   showPopup('📥 Inbound — '+po.order_id,
-    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.55">Cek jumlah barang yang <b>benar-benar sampai</b>. Kolom "Diterima" sudah terisi sesuai kiriman admin — ubah kalau ada yang beda. Setelah confirm, order jadi <b>Selesai</b> dan stok masuk ke perhitungan.</div>'+
-    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Dikirim</th><th style="text-align:center">Diterima</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.55">Cek jumlah barang yang <b>benar-benar sampai</b>. Kolom <b>Dikirim</b> = jumlah yang dikirim admin (angka <span style="color:var(--orange)">oranye</span> = admin merevisi dari pesananmu). Kolom <b>Diterima</b> sudah terisi ikut Dikirim — ubah kalau ada yang beda.</div>'+
+    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Dipesan</th><th style="text-align:center">Dikirim</th><th style="text-align:center">Diterima</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<button class="save-btn" style="width:100%;margin-top:14px;background:var(--green)" onclick="submitInbound('+i+')">✓ Confirm Inbound</button>'+
     '<div id="ib-msg" class="save-msg"></div>', true);
 }
