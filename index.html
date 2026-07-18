@@ -2197,16 +2197,17 @@ async function renderIncomingPO(c){
         var badge=st==='Selesai'?'<span class="tag green">Selesai</span>'
                  :st==='Diproses'?'<span class="tag blue">Diproses</span>'
                  :'<span class="tag gold">Baru</span>';
-        // Baru → Proses · Diproses → DO + Tandai Selesai · Selesai → DO saja
+        // Baru → Proses · Diproses → DO (nunggu staff inbound) · Selesai → DO + info diterima
+        // Status Selesai kini HANYA dari staff yg konfirmasi barang sampai (inbound). Admin tak menutup manual.
         var lastCol;
         if(st==='Baru'){
           lastCol='<button class="ftab" style="padding:5px 12px;background:var(--brown-deep);border-color:var(--brown-deep);color:#fff" onclick="openProcess('+i+')">⚙ Proses</button>';
         } else {
-          lastCol='<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+          lastCol='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
             '<button class="ftab" style="padding:5px 10px;border-color:var(--blue);color:var(--blue)" onclick="downloadDO('+i+')">⬇ DO</button>'+
             (st==='Diproses'
-              ? '<button class="ftab" style="padding:5px 10px;background:var(--green);border-color:var(--green);color:#fff" onclick="askComplete('+i+')">✓ Tandai Selesai</button>'
-              : '<span style="font-size:11px;color:var(--brown-soft);align-self:center">oleh '+(po.completed_by||'-')+'</span>')+
+              ? '<span style="font-size:11px;color:var(--brown-soft);align-self:center">⏳ nunggu diterima toko</span>'
+              : '<span style="font-size:11px;color:var(--green);align-self:center">✓ diterima '+(po.completed_by||'')+(po.inbound_date?' · '+fmtDateShort(po.inbound_date):'')+'</span>')+
             '</div>';
         }
         var est=estimatePO(po);
@@ -2313,33 +2314,7 @@ function openEstimasi(i){
 }
 window.openEstimasi=openEstimasi;
 
-// ---- Tandai Selesai ----
-function askComplete(i){
-  var po=PO_LIST[i]; if(!po) return;
-  showPopup('Tandai Selesai — '+po.order_id,
-    '<div style="font-size:13.5px;color:var(--brown-deep);line-height:1.6;margin-bottom:14px">'+
-      'Tandai PO ini <b>Selesai</b>? Artinya barang sudah dikirim dan urusannya beres.<br>'+
-      '<span style="font-size:12.5px;color:var(--brown-soft)">DO <b>'+(po.do_id||'-')+'</b> · '+String(po.store).replace('SOYASUKA_','')+' · estimasi '+rupiah(estimatePO(po).total)+'</span>'+
-    '</div>'+
-    '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Status Selesai tidak bisa dibatalkan lewat app — harus diubah manual di sheet PURCHASE_ORDER.</div>'+
-    '<button class="save-btn" style="width:100%;background:var(--green)" onclick="doComplete('+i+')">✓ Ya, Tandai Selesai</button>'+
-    '<div id="cmp-msg" class="save-msg"></div>');
-}
-window.askComplete=askComplete;
-
-async function doComplete(i){
-  var po=PO_LIST[i]; if(!po) return;
-  var btn=document.querySelector('#popup-body .save-btn'); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
-  var msg=document.getElementById('cmp-msg');
-  try{
-    var r=await api({action:'completePO',token:S.token,order_id:po.order_id});
-    if(r.ok){
-      if(msg){msg.textContent='✅ Ditandai Selesai';msg.className='save-msg ok';}
-      setTimeout(function(){ closePopup(); navigateTo('incoming-po'); },800);
-    } else if(msg){ msg.textContent='❌ '+(r.error||'Error');msg.className='save-msg err'; if(btn){btn.disabled=false;btn.textContent='✓ Ya, Tandai Selesai';} }
-  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} if(btn){btn.disabled=false;btn.textContent='✓ Ya, Tandai Selesai';} }
-}
-window.doComplete=doComplete;
+// (Tandai Selesai admin dihapus — status Selesai kini via inbound staff di Riwayat Order)
 
 // ---- Modal Proses ----
 function openProcess(i){
@@ -2452,11 +2427,13 @@ async function loadVariance(){
         var idx=menus.indexOf(m);
         inputs+='<div class="fc-row"><div class="fc-name">'+m.name+
           '<div class="fc-hint">'+(m.serving?m.serving+' / porsi':'<span style="color:var(--orange)">serving belum diisi di RECAP</span>')+'</div></div>'+
-          '<input class="fc-inp vr-inp" type="number" min="0" placeholder="0" data-idx="'+idx+'" oninput="this.classList.toggle(\'filled\',!!+this.value);calcVariance()"></div>';
+          '<input class="fc-inp vr-inp" type="number" min="0" placeholder="0" data-idx="'+idx+'" oninput="this.classList.toggle(\'filled\',!!+this.value)"></div>';
       });
     });
 
     box.innerHTML=warnHtml+
+      // Hasil di ATAS input → muncul setelah klik Proses, tak perlu scroll ke bawah.
+      '<div id="vr-result"></div>'+
       '<div class="card" style="margin-bottom:14px">'+
         '<div class="card-title">📅 Periode Efektif</div>'+
         '<div style="font-size:13px;line-height:1.7">'+
@@ -2465,8 +2442,10 @@ async function loadVariance(){
         '</div>'+
       '</div>'+
       '<div class="sec">🍵 Porsi Terjual (dari POS)</div>'+inputs+
-      '<button style="font-family:inherit;font-size:12.5px;color:var(--brown-soft);background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:8px 14px;cursor:pointer;margin:14px 0 18px" onclick="document.querySelectorAll(\'.vr-inp\').forEach(function(i){i.value=\'\';i.classList.remove(\'filled\')});calcVariance()">Reset</button>'+
-      '<div id="vr-result"><div class="empty" style="padding:20px"><div class="ei">🔍</div><div>Isi porsi terjual di atas</div></div></div>';
+      '<div style="display:flex;gap:10px;margin:16px 0 20px;flex-wrap:wrap">'+
+        '<button class="save-btn" style="flex:1;min-width:180px" onclick="calcVariance()">🔍 Proses &amp; Hitung</button>'+
+        '<button style="font-family:inherit;font-size:12.5px;color:var(--brown-soft);background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:8px 16px;cursor:pointer" onclick="vrReset()">Reset</button>'+
+      '</div>';
   }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
 }
 window.loadVariance=loadVariance;
@@ -2493,23 +2472,25 @@ function calcVariance(){
   VAR_CTX.items.forEach(function(it){
     var e=expMap[it.name.toLowerCase()];
     var expected=e?e.qty:0;
-    // Bahan tak tersentuh resep & tak bergerak → tak perlu ditampilkan
-    var aktual=it.soAwal+it.masuk-it.soAkhir;
-    if(!e && Math.abs(aktual)<0.0001 && !it.waste) return;
-    if(!e && expected===0 && aktual>0) tanpaResep.push(it.name);
+    // AKTUAL kepakai = total penurunan antar-SO (dihitung backend).
+    // Kenaikan antar-SO (it.stokNaik) dianggap barang masuk, tidak dihitung kepakai.
+    var aktual=it.stokPakai||0;
+    // Bahan yg tak tersentuh resep, tak bergerak, tak ada waste → sembunyikan
+    if(!e && aktual<0.0001 && !it.waste) return;
+    if(!e && expected===0 && aktual>0.0001) tanpaResep.push(it.name);
     if(e && e.unit && it.unit && String(e.unit).trim().toLowerCase()!==String(it.unit).trim().toLowerCase()){
       unitBeda.push(it.name+' (resep: '+e.unit+' vs stok: '+it.unit+')');
     }
     var harusnya=expected+it.waste;
     var vr=aktual-harusnya;
-    // Harga ING MASTER = per PACK → per unit dasar = price / fullPax
     var perUnit=(it.fullPax>0&&it.price>0)?(it.price/it.fullPax):0;
     var rp=vr*perUnit;
     totalRp+=rp;
-    rows.push({name:it.name,unit:it.unit,soAwal:it.soAwal,masuk:it.masuk,soAkhir:it.soAkhir,
+    rows.push({name:it.name,unit:it.unit,soAwal:it.soAwal,soAkhir:it.soAkhir,stokNaik:it.stokNaik||0,
                aktual:aktual,expected:expected,waste:it.waste,harusnya:harusnya,vr:vr,rp:rp,
                pct:harusnya>0?(vr/harusnya*100):0, noPrice:!(perUnit>0)});
   });
+  VAR_CTX._rows=rows; VAR_CTX._totalRp=totalRp;
 
   rows.sort(function(a,b){ return b.rp-a.rp; });
 
@@ -2518,7 +2499,7 @@ function calcVariance(){
     var warna=k.vr>0.0001?'var(--red)':(k.vr<-0.0001?'var(--blue)':'var(--brown-soft)');
     var tanda=k.vr>0.0001?'+':'';
     return '<tr>'+
-      '<td style="font-weight:600">'+k.name+'<div style="font-size:10.5px;color:var(--brown-soft);font-weight:400">'+num(k.soAwal)+' + '+num(k.masuk)+' − '+num(k.soAkhir)+'</div></td>'+
+      '<td style="font-weight:600">'+k.name+'<div style="font-size:10.5px;color:var(--brown-soft);font-weight:400">SO '+num(k.soAwal)+' → '+num(k.soAkhir)+(k.stokNaik>0.0001?' · masuk +'+num(k.stokNaik):'')+'</div></td>'+
       '<td style="text-align:right;white-space:nowrap">'+num(k.aktual)+' <span style="font-size:10px;color:var(--brown-soft)">'+k.unit+'</span></td>'+
       '<td style="text-align:right;white-space:nowrap">'+num(k.harusnya)+(k.waste?'<div style="font-size:10px;color:var(--brown-soft)">incl. waste '+num(k.waste)+'</div>':'')+'</td>'+
       '<td style="text-align:right;white-space:nowrap;font-weight:700;color:'+warna+'">'+tanda+num(k.vr)+
@@ -2536,8 +2517,9 @@ function calcVariance(){
   res.innerHTML=
     '<div class="card" style="margin-bottom:14px;text-align:center">'+
       '<div class="rk-lbl">Estimasi Nilai Selisih</div>'+
-      '<div style="font-size:30px;font-weight:800;line-height:1.3;color:'+(totalRp>0?'var(--red)':'var(--green)')+'">'+(totalRp>0?'':'')+rupiah(totalRp)+'</div>'+
+      '<div style="font-size:30px;font-weight:800;line-height:1.3;color:'+(totalRp>0?'var(--red)':'var(--green)')+'">'+rupiah(totalRp)+'</div>'+
       '<div style="font-size:12px;color:var(--brown-soft);margin-top:2px">'+(totalRp>0?'nilai stok yang tidak bisa dijelaskan':'pemakaian lebih hemat dari resep')+'</div>'+
+      '<button class="ftab" style="margin-top:12px;padding:7px 16px" onclick="exportVarianceCSV()">⬇ Download Excel (CSV)</button>'+
     '</div>'+notes+
     '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:640px"><thead><tr>'+
       '<th>Bahan<div style="font-size:9px;font-weight:400;opacity:.7">awal + masuk − akhir</div></th>'+
@@ -2550,8 +2532,40 @@ function calcVariance(){
       '<b style="color:var(--blue)">Biru (−)</b> = kepakai lebih sedikit → biasanya salah hitung SO, atau barang masuk belum tercatat di DO.<br>'+
       'Angka ini <b>petunjuk, bukan vonis</b>. Selisih kecil itu normal.'+
     '</div>';
+  var rc=document.getElementById('vr-result'); if(rc&&rc.scrollIntoView) rc.scrollIntoView({behavior:'smooth',block:'start'});
 }
 window.calcVariance=calcVariance;
+
+function vrReset(){
+  document.querySelectorAll('.vr-inp').forEach(function(i){i.value='';i.classList.remove('filled');});
+  var res=document.getElementById('vr-result'); if(res) res.innerHTML='';
+}
+window.vrReset=vrReset;
+
+function exportVarianceCSV(){
+  if(!VAR_CTX||!VAR_CTX._rows) return;
+  var c=VAR_CTX;
+  function q(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }
+  var L=[];
+  L.push(q('VARIANCE STOK — '+S.store.replace('SOYASUKA_','')));
+  L.push(q('Periode SO')+','+q(c.soAwalDate+' s/d '+c.soAkhirDate));
+  if(c.soChain&&c.soChain.length>2) L.push(q('Rangkaian SO')+','+q(c.soChain.join(' → ')));
+  L.push(q('Diunduh')+','+q(new Date().toLocaleString('id-ID')));
+  L.push('');
+  L.push(['Bahan','Unit','SO Awal','SO Akhir','Masuk (antar SO)','Aktual Kepakai','Harusnya (resep)','Wastage','Harusnya+Waste','Selisih','Selisih %','Nilai (Rp)'].map(q).join(','));
+  c._rows.forEach(function(k){
+    L.push([k.name,k.unit,k.soAwal,k.soAkhir,k.stokNaik,round1(k.aktual),round1(k.expected),k.waste,round1(k.harusnya),round1(k.vr),(k.pct?k.pct.toFixed(1):'0'),Math.round(k.rp)].map(q).join(','));
+  });
+  L.push('');
+  L.push([q('TOTAL NILAI SELISIH'),'','','','','','','','','','',q(Math.round(c._totalRp))].join(','));
+  var blob=new Blob(['\ufeff'+L.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='Variance_'+S.store.replace('SOYASUKA_','')+'_'+c.soAwalDate+'_'+c.soAkhirDate+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+window.exportVarianceCSV=exportVarianceCSV;
+function round1(n){ return Math.round((Number(n)||0)*10)/10; }
 
 // =========================================================
 // RIWAYAT ORDER (toko) — status PO yg mereka ajukan
@@ -2585,7 +2599,10 @@ async function renderOrderHistory(c){
           '<td style="text-align:center">'+po.items.length+'</td>'+
           '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
           '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
-          '<td><button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button></td>'+
+          '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+            '<button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button>'+
+            (st==='Diproses'?'<button class="ftab" style="padding:5px 12px;background:var(--green);border-color:var(--green);color:#fff" onclick="openInbound('+i+')">📥 Inbound</button>':'')+
+          '</div></td>'+
         '</tr>';
       }).join('')+'</tbody></table></div>';
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
@@ -2622,7 +2639,7 @@ function openOrderDetail(i){
   } else {
     info+='📦 <b>'+(st==='Selesai'?'Selesai':'Sudah diproses')+'</b> · DO <b>'+(po.do_id||'-')+'</b><br>'+
           'Diproses oleh '+(po.processed_by||'-')+' · '+(po.processed_at||'-');
-    if(st==='Selesai') info+='<br>Ditandai selesai oleh '+(po.completed_by||'-')+' · '+(po.completed_at||'-');
+    if(st==='Selesai') info+='<br>✓ Diterima oleh '+(po.completed_by||'-')+(po.inbound_date?' pada '+fmtDateShort(po.inbound_date):'')+' · '+(po.completed_at||'-');
   }
   info+='</div>';
 
@@ -2630,13 +2647,70 @@ function openOrderDetail(i){
     ? '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th><th style="text-align:center">Dikirim</th></tr>'
     : '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th></tr>';
 
-  var btns='<button class="ftab" style="width:100%;margin-top:12px;padding:9px" onclick="downloadOHPO('+i+')">⬇ Download PO (PDF)</button>';
+  var btns='';
+  if(st==='Diproses') btns+='<button class="save-btn" style="width:100%;margin-top:12px;background:var(--green)" onclick="closePopup();openInbound('+i+')">📥 Konfirmasi Barang Diterima</button>';
+  btns+='<button class="ftab" style="width:100%;margin-top:'+(st==='Diproses'?'8':'12')+'px;padding:9px" onclick="downloadOHPO('+i+')">⬇ Download PO (PDF)</button>';
   if(diproses) btns+='<button class="ftab" style="width:100%;margin-top:8px;padding:9px;border-color:var(--blue);color:var(--blue)" onclick="downloadOHDO('+i+')">⬇ Download DO (PDF)</button>';
 
   showPopup('Order '+po.order_id,
     info+'<div class="tbl-wrap"><table class="tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+btns, true);
 }
 window.openOrderDetail=openOrderDetail;
+
+// ---- INBOUND: staff konfirmasi barang PO sampai fisik ----
+function openInbound(i){
+  var po=OH_LIST[i]; if(!po) return;
+  if((po.status||'')!=='Diproses'){ showPopup('Tidak bisa','<div style="font-size:13px">Order ini statusnya bukan Diproses, tidak bisa di-inbound.</div>'); return; }
+  var src=(po.sentItems&&po.sentItems.length)?po.sentItems:po.items;
+  if(!src||!src.length){ showPopup('Tidak bisa','<div style="font-size:13px">Data barang kosong.</div>'); return; }
+
+  // Default qty diterima = qty dikirim admin. Staff tinggal cek, ubah kalau beda.
+  var rows=src.map(function(it,idx){
+    var sent=Number(it.sent!==undefined?it.sent:it.qty)||0;
+    var pax=(it.fullPax!==''&&it.fullPax!==null&&it.fullPax!==undefined)
+      ? '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+Number(it.fullPax).toLocaleString('id-ID')+' '+(it.unit||'')+' / pack</div>' : '';
+    return '<tr>'+
+      '<td style="font-weight:600">'+it.name+pax+'</td>'+
+      '<td style="text-align:center;color:var(--brown-soft);white-space:nowrap">'+sent+' pack</td>'+
+      '<td style="text-align:center"><input class="fi2 ib-inp" type="number" min="0" style="width:78px;text-align:center;padding:6px" value="'+sent+'" data-name="'+String(it.name).replace(/"/g,'&quot;')+'" data-sent="'+sent+'" data-pax="'+(Number(it.fullPax)||0)+'" data-unit="'+(it.unit||'')+'" oninput="ibMark(this)"></td>'+
+    '</tr>';
+  }).join('');
+
+  showPopup('📥 Inbound — '+po.order_id,
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.55">Cek jumlah barang yang <b>benar-benar sampai</b>. Kolom "Diterima" sudah terisi sesuai kiriman admin — ubah kalau ada yang beda. Setelah confirm, order jadi <b>Selesai</b> dan stok masuk ke perhitungan.</div>'+
+    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Dikirim</th><th style="text-align:center">Diterima</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<button class="save-btn" style="width:100%;margin-top:14px;background:var(--green)" onclick="submitInbound('+i+')">✓ Confirm Inbound</button>'+
+    '<div id="ib-msg" class="save-msg"></div>', true);
+}
+window.openInbound=openInbound;
+
+function ibMark(inp){
+  var sent=Number(inp.dataset.sent)||0, val=Number(inp.value)||0;
+  inp.style.borderColor = (val!==sent) ? 'var(--orange)' : '';
+  inp.style.color = (val!==sent) ? 'var(--orange)' : '';
+  inp.style.fontWeight = (val!==sent) ? '700' : '';
+}
+window.ibMark=ibMark;
+
+async function submitInbound(i){
+  var po=OH_LIST[i]; if(!po) return;
+  var received=[];
+  document.querySelectorAll('.ib-inp').forEach(function(inp){
+    received.push({ name:inp.dataset.name, sent:Number(inp.dataset.sent)||0,
+      received:Number(inp.value)||0, fullPax:Number(inp.dataset.pax)||0, unit:inp.dataset.unit||'' });
+  });
+  var msg=document.getElementById('ib-msg');
+  var btn=document.querySelector('#popup-body .save-btn');
+  if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
+  try{
+    var r=await api({action:'confirmInbound',token:S.token,store:S.store,order_id:po.order_id,received:JSON.stringify(received)});
+    if(r&&r.ok){
+      if(msg){msg.textContent='✅ Barang diterima. Order selesai.';msg.className='save-msg ok';}
+      setTimeout(function(){ closePopup(); navigateTo('order-history'); },800);
+    } else { if(msg){msg.textContent='❌ '+((r&&r.error)||'Error');msg.className='save-msg err';} if(btn){btn.disabled=false;btn.textContent='✓ Confirm Inbound';} }
+  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} if(btn){btn.disabled=false;btn.textContent='✓ Confirm Inbound';} }
+}
+window.submitInbound=submitInbound;
 
 async function downloadOHPO(i){ var po=OH_LIST[i]; if(!po)return; try{ await loadPdfLib(); buildPOPdf(po).save(poFileName(po)); }catch(e){ alert('Gagal: '+e.message); } }
 window.downloadOHPO=downloadOHPO;
