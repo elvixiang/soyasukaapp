@@ -1943,6 +1943,34 @@ window.findRecipe=findRecipe;
 // Rumus: total = porsi × serving → batch = total / yield → bahan = usage/batch × batch
 function expectedUsage(products,sales){
   var need={}, noRecipe=[], noServing=[];
+
+  // Index resep by nama UPPERCASE utk cek "apakah bahan ini sebenarnya sub-resep".
+  // Cocok HANYA kalau nama SAMA PERSIS (case-insensitive) — tidak longgar,
+  // biar 'TARO PASTE' tak salah nyangkut ke 'TARO BALL' dsb.
+  var byName={};
+  Object.keys(products||{}).forEach(function(k){ byName[k.trim().toUpperCase()]=products[k]; });
+
+  // Pecah kebutuhan qtyBase (dlm satuan bahan) dari sebuah resep ke bahan MENTAH.
+  // Kalau sebuah bahan ternyata nama sub-resep → turun rekursif.
+  // guard = set nama resep yg sedang diproses (cegah loop A→B→A).
+  function expand(prod, batches, guard){
+    prod.ingredients.forEach(function(it){
+      var nm=it.name.trim();
+      var key=nm.toUpperCase();
+      var sub=byName[key];
+      var qtyBase=it.qty*batches;
+      if(sub && sub!==prod && sub.yieldQty>0 && !guard[key]){
+        // bahan ini = hasil resep lain. qtyBase dlm satuan hasil (mis. ml/gr).
+        // batch sub = qtyBase / yield sub.
+        var g2={}; for(var x in guard) g2[x]=1; g2[key]=1;
+        expand(sub, qtyBase/sub.yieldQty, g2);
+      } else {
+        if(!need[nm]) need[nm]={qty:0,unit:it.unit};
+        need[nm].qty+=qtyBase;
+      }
+    });
+  }
+
   (sales||[]).forEach(function(sv){
     var n=Number(sv.porsi)||0; if(!n) return;
     var prod=findRecipe(products,sv.name);
@@ -1950,11 +1978,8 @@ function expectedUsage(products,sales){
     var serving=Number(sv.serving)||0;
     if(!serving){ noServing.push(sv.name); return; }
     var batches=(n*serving)/prod.yieldQty;
-    prod.ingredients.forEach(function(it){
-      var k=it.name.trim();
-      if(!need[k]) need[k]={qty:0,unit:it.unit};
-      need[k].qty+=it.qty*batches;
-    });
+    var guard={}; guard[(prod.displayName||prod.title||'').trim().toUpperCase()]=1;
+    expand(prod, batches, guard);
   });
   return {need:need,noRecipe:noRecipe,noServing:noServing};
 }
