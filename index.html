@@ -1931,9 +1931,16 @@ window.buildRecipeIndex=buildRecipeIndex;
 
 // Cocokkan nama menu (RECAP) ke resep (COGS CALC) — pencocokan longgar, sama spt Kalkulator Prep.
 function findRecipe(products,menuName){
+  // Cocok HANYA kalau nama SAMA PERSIS (abaikan huruf besar/kecil + spasi ujung).
+  // Dulu substring longgar → 'ORIGINAL SOYMILK' salah nyangkut ke 'ORIGINAL SOYMILK DRINK'
+  // (yield beda → hasil meledak). Nama RECAP == judul resep COGS CALC, jadi exact aman.
+  var target=String(menuName||'').trim().toUpperCase();
   var hit=null;
   Object.keys(products||{}).forEach(function(k){
-    if(k.toUpperCase().indexOf(menuName.toUpperCase())>=0||menuName.toUpperCase().indexOf(k.toUpperCase())>=0) hit=products[k];
+    var prod=products[k];
+    // cocokkan ke judul resep (displayName / baris Yield), bukan ke nama section.
+    var title=String(prod.displayName||prod.title||'').trim().toUpperCase();
+    if(title===target) hit=prod;
   });
   return hit;
 }
