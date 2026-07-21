@@ -425,20 +425,46 @@ async function api(p){
   // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
   // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
   var hasBigPayload = (p.photo_base64 && p.photo_base64.length > 1500) || (p.items && p.items.length > 1500) || (p.pesan && p.pesan.length > 1500);
-  var r;
-  if(hasBigPayload){
-    var body=new URLSearchParams(p).toString();
-    r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body});
-  } else {
-    var qs=new URLSearchParams(p).toString();
-    r=await fetch(PROXY_URL+'?'+qs);
+  var r, out;
+  try{
+    if(hasBigPayload){
+      var body=new URLSearchParams(p).toString();
+      r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body});
+    } else {
+      var qs=new URLSearchParams(p).toString();
+      r=await fetch(PROXY_URL+'?'+qs);
+    }
+  }catch(e){
+    // fetch gagal total = tidak ada koneksi / DNS / CORS — bahasakan utk staff toko.
+    throw new Error('Koneksi bermasalah. Cek internet kamu, lalu coba lagi.');
   }
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  var out=await r.json();
+  if(!r.ok){
+    throw new Error(r.status>=500
+      ? 'Server sedang bermasalah (kode '+r.status+'). Tunggu sebentar lalu coba lagi.'
+      : 'Permintaan gagal (kode '+r.status+'). Coba refresh halaman.');
+  }
+  try{ out=await r.json(); }
+  catch(e){ throw new Error('Balasan server tidak terbaca. Coba refresh halaman.'); }
   // Data toko berubah → buang cache biar tampilan langsung fresh
   if(WRITE_ACTIONS[p.action]&&out&&out.ok){ try{ sdBust(p.store||null); }catch(e){} }
   return out;
 }
+
+// ── GUARD DOBEL-SUBMIT (global) ──
+// Masalah: jaringan toko lambat + staff tidak sabar = tombol Simpan diklik 2×
+// = data dobel. Solusi: SEMUA tombol yg memicu aksi dikunci 1.2 detik setelah
+// klik pertama (cukup utk mencegah double-tap, tidak mengganggu klik normal).
+// Tombol yg handler-nya sudah punya disable sendiri tetap aman — ini pelapis.
+document.addEventListener('click',function(ev){
+  var b=ev.target&&ev.target.closest?ev.target.closest('button'):null;
+  if(!b) return;
+  if(b.disabled){ ev.stopImmediatePropagation(); ev.preventDefault(); return; }
+  if(!b.hasAttribute('onclick')&&!b.onclick) return;      // bukan tombol aksi
+  if(b.classList.contains('no-guard')) return;            // opt-out eksplisit
+  // Kunci sesaat. JANGAN set b.disabled sebelum handler jalan — pakai flag.
+  if(b._lockT && Date.now()-b._lockT<1200){ ev.stopImmediatePropagation(); ev.preventDefault(); return; }
+  b._lockT=Date.now();
+},true);
 
 // ── LOGIN ──
 document.getElementById('btn-login').addEventListener('click', doLogin);
