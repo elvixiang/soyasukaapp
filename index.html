@@ -507,14 +507,27 @@ function greetNotif(){
   if(!NOTIF.count) return;
   // STAFF: kiriman PO tokomu sudah diproses admin → ajak inbound.
   if(NOTIF.kind==='staff_po'){
-    var ns=NOTIF.count;
+    var nPO=(NOTIF.items||[]).length, nIz=(NOTIF.izin||[]).length;
+    var sub='', btns='';
+    if(nPO) sub+=nPO+' order sudah <b>diproses admin</b> — jangan lupa <b>Inbound</b>!';
+    if(nIz){
+      var dec=NOTIF.izin[0];
+      var apr=NOTIF.izin.filter(function(z){return z.status==='Approved';}).length;
+      var rej=nIz-apr;
+      sub+=(sub?'<br><br>':'')+'Izinmu '+
+        (apr?('<b style="color:var(--green)">'+apr+' disetujui</b>'):'')+
+        (apr&&rej?' · ':'')+
+        (rej?('<b style="color:var(--red)">'+rej+' ditolak</b>'):'')+
+        ' oleh <b>'+dec.decided_by+'</b>';
+      btns+='<button class="save-btn" style="width:100%" onclick="closePopup();showIzinDecisions()">📝 Cek Detail Izin</button>';
+    }
+    if(nPO) btns+='<button class="'+(nIz?'ftab':'save-btn')+'" style="width:100%;'+(nIz?'margin-top:8px;padding:9px':'')+'" onclick="closePopup();navigateTo(\'order-history\')">📜 Lihat Riwayat Order</button>';
     showPopup('Halo, '+(S.user.nickname||S.user.display_name)+'!',
       '<div class="pofu-wrap">'+
         '<img src="'+POFU+'" alt="Pofu">'+
-        '<div class="pofu-hl">Kirimanmu otw! 🚚</div>'+
-        '<div class="pofu-sub">'+ns+' order sudah <b>diproses admin</b>.<br>Kalau barangnya sudah sampai, jangan lupa <b>Inbound</b> ya!</div>'+
-      '</div>'+
-      '<button class="save-btn" style="width:100%" onclick="closePopup();navigateTo(\'order-history\')">📜 Lihat Riwayat Order</button>'+
+        '<div class="pofu-hl">Kamu ada '+NOTIF.count+' notifikasi!</div>'+
+        '<div class="pofu-sub">'+sub+'</div>'+
+      '</div>'+btns+
       '<button class="ftab" style="width:100%;margin-top:8px;padding:9px" onclick="closePopup()">Nanti aja</button>');
     return;
   }
@@ -661,6 +674,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
+    {id:'izin-approval',ico:'📝',lbl:'Persetujuan Izin',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
@@ -672,6 +686,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
+    {id:'izin-approval',ico:'📝',lbl:'Persetujuan Izin',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
@@ -726,7 +741,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','izin-approval':'Persetujuan Izin','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -795,6 +810,7 @@ async function renderPage(id){
     case 'so': await renderSO(c); break;
     case 'absensi': await renderAbsensi(c); break;
     case 'cek-absensi': await renderCekAbsensi(c); break;
+    case 'izin-approval': await renderIzinApproval(c); break;
     case 'perf-overview': renderPerfOverview(c); break;
     case 'wastage-view': await renderWastageView(c); break;
     case 'checklist-view': await renderChecklistView(c); break;
@@ -1625,12 +1641,12 @@ async function renderAbsensi(c){
   // ── Blok Izin ──
   '<div class="card">'+
   '<div class="card-title">📝 Ajukan Izin</div>'+
-  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Kalau kamu tidak masuk, ajukan izin di sini. Untuk <b>Izin Sakit</b>, lampirkan foto surat dokter kalau ada.</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Kalau kamu tidak masuk (hari ini atau tanggal depan, mis. acara minggu depan), ajukan izin di sini. Untuk <b>Izin Sakit</b>, foto surat dokter / bukti <b>wajib</b> dilampirkan.</div>'+
   '<div class="form-grid">'+
-  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="iz-date" value="'+S.today+'" max="'+S.today+'"></div>'+
-  '<div class="fg"><label>Jenis Izin</label><select class="fi2" id="iz-jenis"><option value="">— Pilih —</option><option value="Izin Sakit">Izin Sakit</option><option value="Unpaid Leave">Unpaid Leave</option></select></div>'+
+  '<div class="fg"><label>Tanggal <span style="font-weight:400;color:var(--brown-soft)">(boleh tanggal depan)</span></label><input class="fi2" type="date" id="iz-date" value="'+S.today+'"></div>'+
+  '<div class="fg"><label>Jenis Izin</label><select class="fi2" id="iz-jenis" onchange="izJenisHint()"><option value="">— Pilih —</option><option value="Izin Sakit">Izin Sakit</option><option value="Unpaid Leave">Unpaid Leave</option></select></div>'+
   '<div class="fg full"><label>Keterangan</label><input class="fi2" id="iz-ket" placeholder="Contoh: demam, sudah ke klinik" maxlength="200"></div>'+
-  '<div class="fg full"><label>Foto Surat / Bukti (opsional)</label>'+
+  '<div class="fg full"><label id="iz-photo-lbl">Foto Surat / Bukti (opsional)</label>'+
     '<div class="photo-up" onclick="document.getElementById(\'iz-photo-inp\').click()">'+
     '<div id="iz-photo-preview">📎 Klik untuk upload foto<br><small>Boleh dari galeri · otomatis dikompres</small></div>'+
     '<input type="file" id="iz-photo-inp" accept="image/*" onchange="handleIzinPhoto(this)"></div>'+
@@ -1644,6 +1660,104 @@ async function renderAbsensi(c){
   ['ci','co'].forEach(function(t){ if(document.getElementById('abs-cam-'+t)) absStartCam(t); });
   loadMyIzin();
 }
+
+// Staff lihat detail keputusan izin (dari notif) → setelah dibuka, notif dianggap terbaca.
+function showIzinDecisions(){
+  var list=NOTIF.izin||[];
+  if(!list.length){ navigateTo('absensi'); return; }
+  var body=list.map(function(z){
+    var ok=z.status==='Approved';
+    return '<div style="border:1.5px solid '+(ok?'var(--green)':'var(--red)')+';border-radius:12px;padding:12px 14px;margin-bottom:10px">'+
+      '<div style="font-weight:800;color:'+(ok?'var(--green)':'var(--red)')+';margin-bottom:4px">'+(ok?'✓ DISETUJUI':'✕ DITOLAK')+'</div>'+
+      '<div style="font-size:13px;line-height:1.7">'+
+        '<b>'+z.jenis+'</b> · '+fmtDateShort(z.date)+'<br>'+
+        'Oleh: <b>'+(z.decided_by||'-')+'</b>'+
+        (z.keterangan?'<br>Keteranganmu: '+z.keterangan:'')+
+        (!ok&&z.reject_reason?'<br><span style="color:var(--red)">Alasan: '+z.reject_reason+'</span>':'')+
+      '</div></div>';
+  }).join('');
+  showPopup('📝 Keputusan Izin', body+
+    '<button class="save-btn" style="width:100%;margin-top:4px" onclick="closePopup()">OK, Mengerti</button>', true);
+  // tandai terbaca → notif hilang di login berikutnya
+  try{ api({action:'markIzinSeen',token:S.token,store:S.store}).then(function(){ refreshNotif(); }); }catch(e){}
+}
+window.showIzinDecisions=showIzinDecisions;
+
+// ── PERSETUJUAN IZIN (AM/Owner) ──
+var IZP_LIST=[];
+async function renderIzinApproval(c){
+  c.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getPendingIzin',token:S.token});
+    if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    IZP_LIST=r.data||[];
+    if(!IZP_LIST.length){c.innerHTML='<div class="empty"><div class="ei">✅</div><div>Tidak ada pengajuan izin yang menunggu persetujuan</div></div>';return;}
+    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">Pengajuan izin dari staff. Klik <b>Cek</b> untuk lihat keterangan &amp; lampiran, lalu putuskan. Penolakan wajib disertai alasan — alasan ini dibaca staff.</div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:680px">'+
+      '<thead><tr><th>Tanggal Izin</th><th>Toko</th><th>Nama</th><th>Jenis</th><th>Keterangan</th><th></th></tr></thead><tbody>'+
+      IZP_LIST.map(function(z,i){
+        var cls=z.jenis==='Izin Sakit'?'sakit':'unpaid';
+        return '<tr>'+
+          '<td style="white-space:nowrap;font-weight:600">'+fmtDateShort(z.date)+'</td>'+
+          '<td>'+String(z.store).replace('SOYASUKA_','')+'</td>'+
+          '<td style="font-weight:600">'+z.display_name+'</td>'+
+          '<td><span class="izin-badge '+cls+'">'+z.jenis+'</span></td>'+
+          '<td style="font-size:12px;color:var(--brown-soft);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(z.keterangan||'—')+'</td>'+
+          '<td><button class="ftab" style="padding:5px 14px" onclick="openIzinCheck('+i+')">👁 Cek</button></td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+}
+window.renderIzinApproval=renderIzinApproval;
+
+function openIzinCheck(i){
+  var z=IZP_LIST[i]; if(!z) return;
+  showPopup('📝 Izin — '+z.display_name,
+    '<div style="font-size:13.5px;line-height:1.8;margin-bottom:12px">'+
+      '<b>Tanggal:</b> '+fmtDateShort(z.date)+'<br>'+
+      '<b>Toko:</b> '+String(z.store).replace('SOYASUKA_','')+'<br>'+
+      '<b>Jenis:</b> '+z.jenis+'<br>'+
+      '<b>Keterangan:</b> '+(z.keterangan||'<span style="color:var(--brown-soft)">—</span>')+'<br>'+
+      '<b>Diajukan:</b> '+(z.created_at?String(z.created_at).slice(0,10):'-')+
+    '</div>'+
+    (z.photo_url?'<img src="'+driveImg(z.photo_url)+'" style="max-width:100%;border-radius:10px;margin-bottom:12px">'
+                :'<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Tidak ada lampiran.</div>')+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="save-btn" style="flex:1;background:var(--green)" onclick="decideIzin('+i+',\'Approved\')">✓ Approve</button>'+
+      '<button class="save-btn" style="flex:1;background:var(--red)" onclick="showRejectReason('+i+')">✕ Reject</button>'+
+    '</div>'+
+    '<div id="izp-reject" style="display:none;margin-top:12px">'+
+      '<label style="font-size:12px;font-weight:700;color:var(--brown-deep)">Alasan penolakan (wajib, dibaca staff)</label>'+
+      '<input class="fi2" id="izp-reason" style="margin-top:6px" maxlength="200" placeholder="Contoh: tanggal itu toko kekurangan orang">'+
+      '<button class="save-btn" style="width:100%;margin-top:10px;background:var(--red)" onclick="decideIzin('+i+',\'Rejected\')">Kirim Penolakan</button>'+
+    '</div>'+
+    '<div id="izp-msg" class="save-msg"></div>', true);
+}
+window.openIzinCheck=openIzinCheck;
+
+function showRejectReason(i){
+  var d=document.getElementById('izp-reject');
+  if(d){ d.style.display='block'; var inp=document.getElementById('izp-reason'); if(inp)inp.focus(); }
+}
+window.showRejectReason=showRejectReason;
+
+async function decideIzin(i,decision){
+  var z=IZP_LIST[i]; if(!z) return;
+  var msg=document.getElementById('izp-msg');
+  var reason='';
+  if(decision==='Rejected'){
+    reason=((document.getElementById('izp-reason')||{}).value||'').trim();
+    if(!reason){ if(msg){msg.textContent='❌ Alasan penolakan wajib diisi';msg.className='save-msg err';} return; }
+  }
+  try{
+    var r=await api({action:'decideIzin',token:S.token,store:z.store,date:z.date,username:z.username,decision:decision,reason:reason});
+    if(r&&r.ok){
+      if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui':'✅ Ditolak — staff akan diberi tahu';msg.className='save-msg ok';}
+      setTimeout(function(){ closePopup(); navigateTo('izin-approval'); },800);
+    } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
+  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
+}
+window.decideIzin=decideIzin;
 
 // ── IZIN ──
 var izinPhoto=null;
@@ -1667,6 +1781,15 @@ function handleIzinPhoto(inp){
 }
 window.handleIzinPhoto=handleIzinPhoto;
 
+function izJenisHint(){
+  var j=(document.getElementById('iz-jenis')||{}).value||'';
+  var l=document.getElementById('iz-photo-lbl');
+  if(l) l.innerHTML = j==='Izin Sakit'
+    ? 'Foto Surat / Bukti <span style="color:var(--red);font-weight:700">(WAJIB untuk Izin Sakit)</span>'
+    : 'Foto Surat / Bukti (opsional)';
+}
+window.izJenisHint=izJenisHint;
+
 async function saveIzin(){
   var msg=document.getElementById('iz-msg');
   function err(t){ if(msg){msg.textContent='❌ '+t;msg.className='save-msg err';} }
@@ -1675,6 +1798,7 @@ async function saveIzin(){
   var ket=((document.getElementById('iz-ket')||{}).value||'').trim();
   if(!date) return err('Tanggal wajib diisi');
   if(!jenis) return err('Pilih jenis izin dulu');
+  if(jenis==='Izin Sakit'&&!izinPhoto) return err('Izin Sakit wajib melampirkan foto surat dokter / bukti');
   var btn=document.querySelector('[onclick="saveIzin()"]');
   if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   var photoUrl='';
@@ -1709,10 +1833,15 @@ async function loadMyIzin(){
     box.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-bottom:8px">Izin bulan ini</div>'+
       rows.map(function(z){
         var cls=z.jenis==='Izin Sakit'?'sakit':'unpaid';
+        var st=z.status||'Approved';
+        var stBadge=st==='Pending'?'<span class="izin-badge" style="background:#FEF6E8;color:var(--gold)">⏳ Menunggu</span>'
+                  :st==='Rejected'?'<span class="izin-badge" style="background:#FFF0EE;color:var(--red)" title="'+String(z.reject_reason||'').replace(/"/g,'')+'">✕ Ditolak</span>'
+                  :'<span class="izin-badge" style="background:#EEF7EE;color:var(--green)">✓ Disetujui</span>';
         return '<div class="izin-row">'+
           '<span style="font-size:12px;font-weight:700;white-space:nowrap">'+fmtDateShort(z.date)+'</span>'+
           '<span class="izin-badge '+cls+'">'+z.jenis+'</span>'+
-          '<span style="font-size:12px;color:var(--brown-soft);flex:1;overflow:hidden;text-overflow:ellipsis">'+(z.keterangan||'')+'</span>'+
+          stBadge+
+          '<span style="font-size:12px;color:var(--brown-soft);flex:1;overflow:hidden;text-overflow:ellipsis">'+(st==='Rejected'&&z.reject_reason?'Alasan: '+z.reject_reason:(z.keterangan||''))+'</span>'+
           (z.photo_url?'<span onclick="openAbsPhoto(\''+z.photo_url+'\')" style="cursor:pointer;color:var(--gold);font-size:12px;font-weight:700;white-space:nowrap">📎 Bukti</span>':'')+
         '</div>';
       }).join('');
@@ -3285,7 +3414,7 @@ async function refreshNotif(){
   try{
     var r=await api({action:'getPONotif',token:S.token,store:S.store});
     if(!r.ok) return;
-    NOTIF={count:r.count||0,items:r.items||[],kind:r.kind||''};
+    NOTIF={count:r.count||0,items:r.items||[],izin:r.izin||[],kind:r.kind||''};
     var b=document.getElementById('bell-badge');
     if(b){
       if(NOTIF.count>0){ b.textContent=NOTIF.count>99?'99+':NOTIF.count; b.style.display='flex'; }
@@ -3300,7 +3429,14 @@ function openNotif(){
   if(!NOTIF.count){
     body='<div class="empty" style="padding:26px"><div class="ei">🔕</div><div>Tidak ada notifikasi baru</div></div>';
   } else if(NOTIF.kind==='staff_po'){
-    body=NOTIF.items.map(function(n){
+    var izRows=(NOTIF.izin||[]).map(function(z){
+      var ok=z.status==='Approved';
+      return '<div class="notif-item" onclick="closePopup();showIzinDecisions()">'+
+        '<div style="font-weight:700;color:'+(ok?'var(--green)':'var(--red)')+';font-size:13.5px;margin-bottom:3px">'+(ok?'✓ Izin Disetujui':'✕ Izin Ditolak')+'</div>'+
+        '<div style="font-size:12.5px;color:var(--brown-soft)">'+z.jenis+' '+fmtDateShort(z.date)+' · oleh '+(z.decided_by||'-')+' — klik utk detail</div>'+
+      '</div>';
+    }).join('');
+    body=izRows+NOTIF.items.map(function(n){
       return '<div class="notif-item" onclick="closePopup();navigateTo(\'order-history\')">'+
         '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:3px">'+
           '<span style="font-weight:700;color:var(--brown-deep);font-size:13.5px">🚚 Order Diproses</span>'+
