@@ -2748,19 +2748,38 @@ function openProcess(i){
   var po=PO_LIST[i]; if(!po) return;
   var rows=(po.items||[]).map(function(it,k){
     var pax=(it.fullPax!==''&&it.fullPax!==null&&it.fullPax!==undefined)?(Number(it.fullPax).toLocaleString('id-ID')+' '+(it.unit||'')):'';
+    var fp=Number(it.fullPax)||0;
+    // Total isi = qty pack × isi per pack. Ordered fix; Kirim ikut input (id tot-<k>).
+    var totOrder = fp>0 ? (Number(it.qty)*fp) : 0;
+    var totTxt = fp>0
+      ? '<div style="font-size:11px;color:var(--brown-soft)">pesan: '+totOrder.toLocaleString('id-ID')+' '+(it.unit||'')+'</div>'+
+        '<div style="font-weight:700" id="tot-'+k+'">'+totOrder.toLocaleString('id-ID')+' '+(it.unit||'')+'</div>'
+      : '<span style="color:var(--line)">—</span>';
     return '<tr>'+
       '<td style="font-weight:600">'+it.name+'<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+pax.trim()+' / pack</div></td>'+
       '<td style="text-align:center;font-weight:700;color:var(--brown-soft)">'+it.qty+'</td>'+
-      '<td><input type="number" min="0" id="snd-'+k+'" value="'+it.qty+'" oninput="markDiff('+k+','+it.qty+')" style="width:70px"></td>'+
+      '<td><input type="number" min="0" id="snd-'+k+'" value="'+it.qty+'" oninput="markDiff('+k+','+it.qty+');calcTotIsi('+k+','+fp+',\''+String(it.unit||'').replace(/'/g,'')+'\')" style="width:70px"></td>'+
+      '<td style="text-align:right;white-space:nowrap">'+totTxt+'</td>'+
     '</tr>';
   }).join('');
   showPopup('Proses — '+po.order_id,
-    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Angka <b>Kirim</b> default sama dengan Order. Ubah kalau jumlah yang dikirim berbeda.</div>'+
-    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Order</th><th>Kirim</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Angka <b>Kirim</b> default sama dengan Order. Ubah kalau jumlah yang dikirim berbeda. Kolom <b>Total Isi</b> = jumlah pack dikali isi per pack (biar gak usah hitung manual).</div>'+
+    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Order</th><th>Kirim</th><th style="text-align:right">Total Isi</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<button class="save-btn" style="width:100%;margin-top:12px" onclick="doProcess('+i+')">✓ Proses & Terbitkan DO</button>'+
-    '<div id="prc-msg" class="save-msg"></div>');
+    '<div id="prc-msg" class="save-msg"></div>', true);
 }
 window.openProcess=openProcess;
+
+// Update total isi (kolom Kirim) saat qty diubah admin
+function calcTotIsi(k,fp,unit){
+  var out=document.getElementById('tot-'+k); if(!out||!(fp>0)) return;
+  var el=document.getElementById('snd-'+k);
+  var v=(el&&el.value!=='')?Number(el.value):0;
+  var tot=v*fp;
+  out.textContent=tot.toLocaleString('id-ID')+' '+(unit||'');
+  out.style.color='var(--brown-deep)';
+}
+window.calcTotIsi=calcTotIsi;
 
 function markDiff(k,ordered){
   var el=document.getElementById('snd-'+k); if(!el) return;
