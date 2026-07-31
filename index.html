@@ -424,14 +424,17 @@ var WRITE_ACTIONS={saveReport:1,saveChecklist:1,saveWastage:1,saveSO:1,saveAbsen
 async function api(p){
   // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
   // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
-  var hasBigPayload = (p.photo_base64 && p.photo_base64.length > 1500) || (p.items && p.items.length > 1500) || (p.pesan && p.pesan.length > 1500);
+  // GET vs POST diputuskan dari panjang URL SETELAH encode — bukan per-field.
+  // Sebab: token JWT sendiri panjang, dan {}"" jadi %7B%22 (≈3× lipat) saat encode.
+  // Kalau total > ~1800 char, GET berisiko dipotong → JSON rusak di server → HTTP 500.
+  // Ini otomatis menangkap processPO/inbound PO banyak item tanpa daftar field manual.
+  var qs=new URLSearchParams(p).toString();
+  var usePost = (PROXY_URL.length + 1 + qs.length) > 1800;
   var r, out;
   try{
-    if(hasBigPayload){
-      var body=new URLSearchParams(p).toString();
-      r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body});
+    if(usePost){
+      r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:qs});
     } else {
-      var qs=new URLSearchParams(p).toString();
       r=await fetch(PROXY_URL+'?'+qs);
     }
   }catch(e){
