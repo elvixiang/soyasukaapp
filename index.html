@@ -1368,6 +1368,9 @@ function renderCLItems(type,rows){
   }).join('');
 }
 function esc(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+// HTML-escape utk teks yg diketik user (nama barang manual) sebelum masuk innerHTML.
+function mEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+window.mEsc=mEsc;
 function toggleCL(item,type){
   if(!checkState[item])checkState[item]={status:'pending'};
   // Once done (checked by someone), cannot be unchecked
@@ -1533,7 +1536,7 @@ async function renderSO(c){
     c.innerHTML='<div class="empty"><div class="ei">📦</div><div>Belum ada bahan yang ditandai perlu Stock Opname (kolom Need SO = YES di ING MASTER)</div></div>';
     return;
   }
-  SO_ITEMS=soItems.map(function(it){return{name:it.name,unit:it.unit};});
+  SO_ITEMS=soItems.map(function(it){return{name:it.name,unit:it.unit,fullPax:it.fullPax};});
   // Data SO yang sudah tersimpan hari ini → {nama: qty}
   var saved={}; var hasData=false;
   ((sd&&sd.soToday)||[]).forEach(function(row){ saved[String(row[1]).trim()]=row[3]; hasData=true; });
@@ -1547,26 +1550,57 @@ function renderSOTable(soItems){
   var rowsHtml=soItems.map(function(it,i){
     var val=saved[it.name.trim()];
     var hasVal=(val!==undefined&&val!==''&&val!==null);
-    return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
-    '<td style="font-weight:600">'+it.name+'</td>'+
-    '<td style="color:var(--brown-soft)">'+(it.unit||'')+'</td>'+
-    '<td><input type="number" min="0" placeholder="0" id="so-qty-'+i+'" value="'+(hasVal?val:'')+'" '+(locked?'disabled':'')+' style="'+(locked?'opacity:.65;background:var(--surface2)':'')+'"></td></tr>';
+    var fp=Number(it.fullPax)||0;
+    var unit=it.unit||'';
+    // Isi/pack ditunjukkan sbg hint di bawah nama; kolom Pack cuma aktif kalau fp>0.
+    var paxHint = fp>0
+      ? '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+fp.toLocaleString('id-ID')+' '+unit+' / pack</div>'
+      : '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">tanpa pack</div>';
+    var dis = locked?' disabled':'';
+    var lockSty = locked?';opacity:.6;background:var(--surface2)':'';
+    var packCell = fp>0
+      ? '<input type="number" min="0" placeholder="0" id="so-pack-'+i+'"'+dis+' oninput="soCalc('+i+')" style="width:60px;text-align:center'+lockSty+'">'
+      : '<span style="color:var(--line)">—</span>';
+    // Ceceran = sisa lepasan dalam satuan dasar. Saat sudah tersimpan, total ditaruh di sini.
+    var looseCell = '<input type="number" min="0" placeholder="0" id="so-loose-'+i+'" value="'+(hasVal?val:'')+'"'+dis+' oninput="soCalc('+i+')" style="width:68px;text-align:center'+lockSty+'">';
+    var totTxt = (hasVal?Number(val):0).toLocaleString('id-ID')+' '+unit;
+    return '<tr>'+
+      '<td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
+      '<td style="font-weight:600">'+it.name+paxHint+'</td>'+
+      '<td style="text-align:center">'+packCell+'</td>'+
+      '<td style="text-align:center">'+looseCell+'</td>'+
+      '<td style="text-align:right;font-weight:700;white-space:nowrap" id="so-tot-'+i+'">'+totTxt+'</td>'+
+    '</tr>';
   }).join('');
   var actionBtn = locked
     ? '<button class="save-btn" onclick="unlockSO()" style="background:var(--gold)">✏️ Edit</button>'
     : '<button class="save-btn" onclick="saveSO()">Simpan Stock Opname</button>';
   var statusNote = locked
-    ? '<div style="font-size:12.5px;color:var(--green);background:#F0FBF0;border:1px solid #B7E8C0;border-radius:8px;padding:9px 12px;margin-bottom:12px">✅ Stock Opname hari ini sudah tersimpan. Klik <b>Edit</b> untuk mengubah angka.</div>'
-    : '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Isi jumlah stok fisik aktual, lalu klik Simpan. Data tersimpan untuk tanggal hari ini.</div>';
+    ? '<div style="font-size:12.5px;color:var(--green);background:#F0FBF0;border:1px solid #B7E8C0;border-radius:8px;padding:9px 12px;margin-bottom:12px">✅ Stock Opname hari ini sudah tersimpan (angka = total gramasi). Klik <b>Edit</b> untuk mengubah.</div>'
+    : '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.55"><b>Pack</b> = bungkus utuh · <b>Ceceran</b> = sisa lepasan (satuan dasar) · <b>Total</b> dihitung otomatis = pack×isi + ceceran. Lalu klik Simpan.</div>';
   c.innerHTML='<div class="card">'+
   '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
   '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" value="'+S.today+'" readonly></div></div>'+
   '<div style="margin-top:12px">'+statusNote+'</div>'+
   '<div class="tbl-wrap"><table class="tbl" id="so-tbl">'+
-  '<thead><tr><th>#</th><th>Nama Bahan</th><th>Unit</th><th>Qty Aktual</th></tr></thead>'+
+  '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:center">Pack</th><th style="text-align:center">Ceceran</th><th style="text-align:right">Total</th></tr></thead>'+
   '<tbody>'+rowsHtml+'</tbody></table></div>'+
   '<div class="row-actions">'+actionBtn+'<div id="so-msg" class="save-msg"></div></div></div>';
 }
+
+// Live-hitung total gramasi per baris SO = pack×isi/pack + ceceran.
+function soCalc(i){
+  var it=SO_ITEMS[i]; if(!it) return;
+  var fp=Number(it.fullPax)||0;
+  var packEl=document.getElementById('so-pack-'+i);
+  var looseEl=document.getElementById('so-loose-'+i);
+  var pack=(packEl&&packEl.value!=='')?Number(packEl.value):0;
+  var loose=(looseEl&&looseEl.value!=='')?Number(looseEl.value):0;
+  var tot=pack*fp+loose;
+  var out=document.getElementById('so-tot-'+i);
+  if(out) out.textContent=tot.toLocaleString('id-ID')+' '+(it.unit||'');
+}
+window.soCalc=soCalc;
 
 function unlockSO(){ window._soLocked=false; renderSOTable(SO_ITEMS); }
 window.unlockSO=unlockSO;
@@ -1574,8 +1608,12 @@ window.unlockSO=unlockSO;
 async function saveSO(){
   var btn=document.querySelector('#content .save-btn'); if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   var items=SO_ITEMS.map(function(it,i){
-    var el=document.getElementById('so-qty-'+i);
-    return {ingredient:it.name,unit:it.unit,actual_qty:(el&&el.value!==''?el.value:0)};
+    var fp=Number(it.fullPax)||0;
+    var packEl=document.getElementById('so-pack-'+i);
+    var looseEl=document.getElementById('so-loose-'+i);
+    var pack=(packEl&&packEl.value!=='')?Number(packEl.value):0;
+    var loose=(looseEl&&looseEl.value!=='')?Number(looseEl.value):0;
+    return {ingredient:it.name,unit:it.unit,actual_qty:pack*fp+loose};
   });
   try{
     var r=await api({action:'saveSO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items)});
@@ -2547,14 +2585,37 @@ async function renderOrder(c){
     '<div class="tbl-wrap"><table class="tbl">'+
       '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Terakhir Order</th><th>Order (pack)</th></tr></thead>'+
       '<tbody>'+rows+'</tbody></table></div>'+
-    '<div class="row-actions" style="justify-content:space-between">'+
+    '<div class="sec" style="margin-top:22px">🧾 Barang Lain (non-inbound)</div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.55">Barang di luar bahan baku yang <b>tidak masuk stok/inbound</b> (plastik wrap, plastik sampah, dll). Tulis nama, qty, satuan. Klik <b>+ Tambah Barang</b> untuk baris lain.</div>'+
+    '<div id="manual-rows"></div>'+
+    '<button class="ftab no-guard" style="padding:7px 14px;border-style:dashed" onclick="addManualRow()">+ Tambah Barang</button>'+
+    '<div class="row-actions" style="justify-content:space-between;margin-top:16px">'+
       '<button class="save-btn" onclick="submitOrder()">Submit Order</button>'+
       '<span id="po-total" style="font-size:13px;color:var(--brown-soft)">0 item dipilih</span>'+
     '</div>'+
     '<div id="po-msg" class="save-msg"></div>'+
   '</div>';
+  addManualRow();       // satu baris kosong sbg awalan
   loadLastOrdered();
 }
+
+// ---- Barang manual / non-inbound: baris dinamis nama+qty+satuan ----
+var _mrowSeq=0;
+function manualRowHtml(id){
+  var inpBase='font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--surface2);border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;outline:none';
+  return '<div class="manual-row" id="mrow-'+id+'" style="display:flex;gap:6px;margin-bottom:8px;align-items:center">'+
+    '<input type="text" placeholder="Nama barang" class="m-name" style="flex:1;min-width:0;'+inpBase+'">'+
+    '<input type="number" min="0" placeholder="Qty" class="m-qty" style="width:56px;text-align:center;'+inpBase+';padding:8px 4px">'+
+    '<input type="text" placeholder="satuan" class="m-unit" style="width:66px;'+inpBase+';padding:8px 8px">'+
+    '<button class="no-guard" onclick="removeManualRow('+id+')" style="flex:none;width:32px;height:34px;border:1.5px solid var(--line);background:var(--surface);border-radius:9px;color:var(--brown-soft);cursor:pointer;font-size:14px">✕</button>'+
+  '</div>';
+}
+function addManualRow(){
+  var box=document.getElementById('manual-rows'); if(!box) return;
+  box.insertAdjacentHTML('beforeend', manualRowHtml(_mrowSeq++));
+}
+function removeManualRow(id){ var el=document.getElementById('mrow-'+id); if(el) el.remove(); }
+window.addManualRow=addManualRow; window.removeManualRow=removeManualRow;
 function calcOrderTotal(){
   var n=0;
   ORDER_ITEMS.forEach(function(it,i){ var el=document.getElementById('po-qty-'+i); if(el&&Number(el.value)>0) n++; });
@@ -2587,14 +2648,23 @@ async function submitOrder(){
     var q=el?Number(el.value)||0:0;
     if(q>0) items.push({name:it.name,qty:q,fullPax:it.fullPax,unit:it.unit});
   });
+  // Barang non-inbound yang diketik manual
+  var manualItems=[];
+  document.querySelectorAll('#manual-rows .manual-row').forEach(function(row){
+    var nm=((row.querySelector('.m-name')||{}).value||'').trim();
+    var qt=Number((row.querySelector('.m-qty')||{}).value||0)||0;
+    var un=((row.querySelector('.m-unit')||{}).value||'').trim();
+    if(nm && qt>0) manualItems.push({name:nm,qty:qt,unit:un});
+  });
   var msg=document.getElementById('po-msg');
-  if(!items.length){ if(msg){msg.textContent='❌ Isi minimal 1 item';msg.className='save-msg err';} return; }
+  if(!items.length && !manualItems.length){ if(msg){msg.textContent='❌ Isi minimal 1 item';msg.className='save-msg err';} return; }
   var btn=document.querySelector('#content .save-btn'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
   try{
-    var r=await api({action:'savePO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items)});
+    var r=await api({action:'savePO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items),manual_items:JSON.stringify(manualItems)});
     if(r.ok){
       if(msg){msg.textContent='✅ Order terkirim! Order ID: '+r.order_id;msg.className='save-msg ok';}
       ORDER_ITEMS.forEach(function(it,i){ var el=document.getElementById('po-qty-'+i); if(el) el.value=''; });
+      var box=document.getElementById('manual-rows'); if(box){ box.innerHTML=''; addManualRow(); }
       calcOrderTotal();
     } else if(msg){ msg.textContent='❌ '+(r.error||'Error');msg.className='save-msg err'; }
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
@@ -2643,7 +2713,7 @@ async function renderIncomingPO(c){
           '<td>'+String(po.store).replace('SOYASUKA_','')+'</td>'+
           '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
           '<td>'+po.display_name+'</td>'+
-          '<td style="text-align:center">'+po.items.length+'</td>'+
+          '<td style="text-align:center">'+(po.items.length+((po.manualItems&&po.manualItems.length)||0))+'</td>'+
           '<td>'+badge+'</td>'+
           '<td><button class="ftab" style="padding:5px 12px" onclick="downloadPO('+i+')">⬇ PDF</button></td>'+
           '<td>'+lastCol+'</td>'+
@@ -2762,9 +2832,21 @@ function openProcess(i){
       '<td style="text-align:right;white-space:nowrap">'+totTxt+'</td>'+
     '</tr>';
   }).join('');
+  var mItems=po.manualItems||[];
+  var manualHtml = mItems.length
+    ? '<div class="sec" style="margin-top:18px">🧾 Barang Non-Inbound</div>'+
+      '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:8px 11px;margin-bottom:10px;line-height:1.5">Dibeli sesuai daftar, tapi <b>tidak masuk stok/inbound</b> — toko tidak mengkonfirmasi penerimaannya.</div>'+
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Barang</th><th style="text-align:center">Qty</th><th>Satuan</th></tr></thead><tbody>'+
+      mItems.map(function(m){return '<tr><td style="font-weight:600">'+mEsc(m.name)+'</td><td style="text-align:center;font-weight:700">'+m.qty+'</td><td style="color:var(--brown-soft)">'+mEsc(m.unit||'-')+'</td></tr>';}).join('')+
+      '</tbody></table></div>'
+    : '';
+  var rowsBlock = rows
+    ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Order</th><th>Kirim</th><th style="text-align:right">Total Isi</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    : '<div style="font-size:12.5px;color:var(--brown-soft);padding:4px 2px 2px">Tidak ada bahan baku — hanya barang non-inbound.</div>';
   showPopup('Proses — '+po.order_id,
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Angka <b>Kirim</b> default sama dengan Order. Ubah kalau jumlah yang dikirim berbeda. Kolom <b>Total Isi</b> = jumlah pack dikali isi per pack (biar gak usah hitung manual).</div>'+
-    '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Order</th><th>Kirim</th><th style="text-align:right">Total Isi</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    rowsBlock+
+    manualHtml+
     '<button class="save-btn" style="width:100%;margin-top:12px" onclick="doProcess('+i+')">✓ Proses & Terbitkan DO</button>'+
     '<div id="prc-msg" class="save-msg"></div>', true);
 }
@@ -3130,7 +3212,7 @@ async function renderOrderHistory(c){
         return '<tr>'+
           '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
           '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
-          '<td style="text-align:center">'+po.items.length+'</td>'+
+          '<td style="text-align:center">'+(po.items.length+((po.manualItems&&po.manualItems.length)||0))+'</td>'+
           '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
           '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
           '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'+
@@ -3181,13 +3263,22 @@ function openOrderDetail(i){
     ? '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th><th style="text-align:center">Dikirim</th></tr>'
     : '<tr><th>Bahan</th><th style="text-align:center">Dipesan</th></tr>';
 
+  var mItems=po.manualItems||[];
+  var manualHtml = mItems.length
+    ? '<div class="sec" style="margin-top:16px">🧾 Barang Non-Inbound</div>'+
+      '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:8px 11px;margin-bottom:10px;line-height:1.5">Barang ini <b>tidak masuk inbound</b> — tidak perlu dikonfirmasi diterima.</div>'+
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Barang</th><th style="text-align:center">Qty</th><th>Satuan</th></tr></thead><tbody>'+
+      mItems.map(function(m){return '<tr><td style="font-weight:600">'+mEsc(m.name)+'</td><td style="text-align:center;font-weight:700">'+m.qty+'</td><td style="color:var(--brown-soft)">'+mEsc(m.unit||'-')+'</td></tr>';}).join('')+
+      '</tbody></table></div>'
+    : '';
+
   var btns='';
   if(st==='Diproses') btns+='<button class="save-btn" style="width:100%;margin-top:12px;background:var(--green)" onclick="closePopup();openInbound('+i+')">📥 Konfirmasi Barang Diterima</button>';
   btns+='<button class="ftab" style="width:100%;margin-top:'+(st==='Diproses'?'8':'12')+'px;padding:9px" onclick="downloadOHPO('+i+')">⬇ Download PO (PDF)</button>';
   if(diproses) btns+='<button class="ftab" style="width:100%;margin-top:8px;padding:9px;border-color:var(--blue);color:var(--blue)" onclick="downloadOHDO('+i+')">⬇ Download DO (PDF)</button>';
 
   showPopup('Order '+po.order_id,
-    info+'<div class="tbl-wrap"><table class="tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+btns, true);
+    info+'<div class="tbl-wrap"><table class="tbl"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+manualHtml+btns, true);
 }
 window.openOrderDetail=openOrderDetail;
 
@@ -3378,6 +3469,26 @@ function buildDocPdf(po,kind){
       }
     }
   });
+
+  // Barang non-inbound (kalau ada) — muncul di PO & DO, di bawah tabel utama.
+  var mItems=po.manualItems||[];
+  if(mItems.length){
+    var my=doc.lastAutoTable.finalY+9;
+    if(my>250){ doc.addPage(); my=24; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
+    doc.text('BARANG NON-INBOUND (tidak masuk stok / inbound)',M,my);
+    doc.autoTable({
+      startY:my+2.5,
+      head:[['Item Name','Qty','Unit']],
+      body:mItems.map(function(m){return [String(m.name),String(m.qty),String(m.unit||'-')];}),
+      theme:'grid',
+      styles:{font:'helvetica',fontSize:9,cellPadding:2.6,textColor:ESP,lineColor:LINE,lineWidth:0.2},
+      headStyles:{fillColor:SOFT,textColor:[255,255,255],fontStyle:'bold',halign:'center'},
+      alternateRowStyles:{fillColor:[251,247,239]},
+      columnStyles:{0:{cellWidth:100},1:{cellWidth:28,halign:'center',fontStyle:'bold'},2:{cellWidth:32,halign:'center'}},
+      margin:{left:M,right:M}
+    });
+  }
 
   var ty=doc.lastAutoTable.finalY+14;
   if(ty>232){ doc.addPage(); ty=24; }
