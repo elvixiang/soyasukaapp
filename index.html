@@ -1292,15 +1292,15 @@ async function renderReportSales(c){
   '<div class="card-title">💰 Report Sales — '+S.store.replace('SOYASUKA_','')+'</div>'+
   '<div class="form-grid">'+
   '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="rs-date" value="'+S.today+'" readonly title="Tanggal otomatis hari ini"></div>'+
-  '<div class="fg"><label>QRIS BCA (Rp)</label><input class="fi2" type="number" id="rs-qris" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>Transfer BCA (Rp)</label><input class="fi2" type="number" id="rs-bca" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>Credit Card (Rp)</label><input class="fi2" type="number" id="rs-cc" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>Qty Transaksi Offline</label><input class="fi2" type="number" id="rs-qoff" placeholder="0" oninput="calcRS()"></div>'+
+  '<div class="fg"><label>QRIS BCA (Rp)</label><input class="fi2" type="text" inputmode="numeric" id="rs-qris" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>Transfer BCA (Rp)</label><input class="fi2" type="text" inputmode="numeric" id="rs-bca" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>Credit Card (Rp)</label><input class="fi2" type="text" inputmode="numeric" id="rs-cc" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>Qty Transaksi Offline</label><input class="fi2" type="text" inputmode="numeric" id="rs-qoff" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
   '<div class="fdiv"></div>'+
-  '<div class="fg"><label>GrabFood Sales (Rp)</label><input class="fi2" type="number" id="rs-grab" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>Qty Grab</label><input class="fi2" type="number" id="rs-qgrab" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>GoFood Sales (Rp)</label><input class="fi2" type="number" id="rs-go" placeholder="0" oninput="calcRS()"></div>'+
-  '<div class="fg"><label>Qty GoFood</label><input class="fi2" type="number" id="rs-qgo" placeholder="0" oninput="calcRS()"></div>'+
+  '<div class="fg"><label>GrabFood Sales (Rp)</label><input class="fi2" type="text" inputmode="numeric" id="rs-grab" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>Qty Grab</label><input class="fi2" type="text" inputmode="numeric" id="rs-qgrab" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>GoFood Sales (Rp)</label><input class="fi2" type="text" inputmode="numeric" id="rs-go" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
+  '<div class="fg"><label>Qty GoFood</label><input class="fi2" type="text" inputmode="numeric" id="rs-qgo" placeholder="0" oninput="fmtMoney(this);calcRS()"></div>'+
   '<div class="fg"><label>Catatan</label><input class="fi2" type="text" id="rs-notes" placeholder="opsional"></div>'+
   '<div class="fg"><label>Reported By</label><input class="fi2" value="'+S.user.display_name+'" readonly></div>'+
   '<div class="total-row">'+
@@ -1309,13 +1309,28 @@ async function renderReportSales(c){
   '</div></div>'+
   '<div class="row-actions"><button class="save-btn" onclick="saveRS()">Simpan Report</button><div id="rs-msg" class="save-msg"></div></div>'+
   '</div>';
-  if(rs){ document.getElementById('rs-qris').value=rs[1]||0; document.getElementById('rs-bca').value=rs[2]||0; document.getElementById('rs-cc').value=rs[3]||0; document.getElementById('rs-qoff').value=rs[4]||0; document.getElementById('rs-grab').value=rs[5]||0; document.getElementById('rs-qgrab').value=rs[6]||0; document.getElementById('rs-go').value=rs[7]||0; document.getElementById('rs-qgo').value=rs[8]||0; document.getElementById('rs-notes').value=rs[11]||''; calcRS(); }
+  if(rs){
+    function setM(id,v){ var el=document.getElementById(id); if(el) el.value=(Number(v)||0)?Number(v).toLocaleString('id-ID'):''; }
+    setM('rs-qris',rs[1]); setM('rs-bca',rs[2]); setM('rs-cc',rs[3]); setM('rs-qoff',rs[4]);
+    setM('rs-grab',rs[5]); setM('rs-qgrab',rs[6]); setM('rs-go',rs[7]); setM('rs-qgo',rs[8]);
+    document.getElementById('rs-notes').value=rs[11]||''; calcRS();
+  }
 }
 
+// Bersihkan angka gaya Indonesia → integer. "286.000"→286000 · "50,000"→50000 · "Rp 12.000"→12000
+function rsClean(v){ return Number(String(v==null?'':v).replace(/[^0-9]/g,'')) || 0; }
+window.rsClean=rsClean;
+// Format ribuan saat diketik supaya angka besar kebaca jelas (tampil "286.000").
+function fmtMoney(el){
+  var d=String(el.value||'').replace(/[^0-9]/g,'').replace(/^0+(?=\d)/,'');
+  el.value = d ? Number(d).toLocaleString('id-ID') : '';
+}
+window.fmtMoney=fmtMoney;
+
 function calcRS(){
-  var q=+($('rs-qris').value||0),b=+($('rs-bca').value||0),cc=+($('rs-cc').value||0);
-  var g=+($('rs-grab').value||0),go=+($('rs-go').value||0);
-  var qo=+($('rs-qoff').value||0),qg=+($('rs-qgrab').value||0),qgo=+($('rs-qgo').value||0);
+  var q=rsClean($('rs-qris').value),b=rsClean($('rs-bca').value),cc=rsClean($('rs-cc').value);
+  var g=rsClean($('rs-grab').value),go=rsClean($('rs-go').value);
+  var qo=rsClean($('rs-qoff').value),qg=rsClean($('rs-qgrab').value),qgo=rsClean($('rs-qgo').value);
   var t=document.getElementById('rs-tot'); if(t)t.textContent=fmtRp(q+b+cc+g+go);
   var t2=document.getElementById('rs-ttxn'); if(t2)t2.textContent=(qo+qg+qgo).toLocaleString('id-ID');
 }
@@ -1326,9 +1341,9 @@ async function saveRS(){
   var btn=document.querySelector('#content .save-btn'); if(!btn)return; btn.disabled=true; btn.textContent='Menyimpan...';
   try{
     var r=await api({action:'saveReport',token:S.token,store:S.store,
-      date:$('rs-date').value,qris_bca:$('rs-qris').value,transfer_bca:$('rs-bca').value,credit_card:$('rs-cc').value,
-      qty_txn_offline:$('rs-qoff').value,grabfood_sales:$('rs-grab').value,qty_txn_grab:$('rs-qgrab').value,
-      gofood_sales:$('rs-go').value,qty_txn_gofood:$('rs-qgo').value,notes:$('rs-notes').value});
+      date:$('rs-date').value,qris_bca:rsClean($('rs-qris').value),transfer_bca:rsClean($('rs-bca').value),credit_card:rsClean($('rs-cc').value),
+      qty_txn_offline:rsClean($('rs-qoff').value),grabfood_sales:rsClean($('rs-grab').value),qty_txn_grab:rsClean($('rs-qgrab').value),
+      gofood_sales:rsClean($('rs-go').value),qty_txn_gofood:rsClean($('rs-qgo').value),notes:$('rs-notes').value});
     var msg=document.getElementById('rs-msg');
     if(r.ok){msg.textContent='✅ Tersimpan! Total: '+fmtRp(r.totalSales);msg.className='save-msg ok';}
     else{msg.textContent='❌ '+r.error;msg.className='save-msg err';}
@@ -1433,7 +1448,7 @@ async function renderWastage(c){
   '<div class="fg"><label>Alasan</label><select class="fi2" id="wst-reason" onchange="wstReasonChange()"><option value="">— Alasan —</option><option>Basi / expired</option><option>Bau</option><option>Jatuh / tumpah</option><option>Salah produksi</option><option>Kelebihan produksi</option><option>Kerusakan kemasan</option><option>Lainnya</option></select></div>'+
   '<div class="fg"><label>Dilaporkan oleh</label><input class="fi2" value="'+S.user.display_name+'" readonly></div>'+
   '<div class="fg full"><label id="wst-notes-lbl">Catatan</label><input class="fi2" type="text" id="wst-notes" placeholder="opsional"></div>'+
-  '<div class="fg full"><label>Foto Bukti</label><div class="photo-up" onclick="document.getElementById(\'wst-photo-inp\').click()"><div id="wst-photo-preview">📷 Klik upload foto bukti<br><small>Otomatis dikompres &lt;1MB</small></div><input type="file" id="wst-photo-inp" accept="image/*" capture="environment" onchange="handleWstPhoto(this)"></div></div>'+
+  '<div class="fg full"><label>Foto Bukti</label><div class="photo-up" onclick="document.getElementById(\'wst-photo-inp\').click()"><div id="wst-photo-preview">📷 Klik upload foto bukti<br><small>Kamera atau galeri · otomatis dikompres &lt;1MB</small></div><input type="file" id="wst-photo-inp" accept="image/*" onchange="handleWstPhoto(this)"></div></div>'+
   '</div>'+
   '<div class="row-actions"><button class="save-btn" onclick="submitWastage()">+ Tambah Wastage</button><div id="wst-msg" class="save-msg"></div></div></div>'+
   '<div class="sec" style="margin-top:20px">Wastage Hari Ini ('+today.length+')</div>'+
@@ -1582,7 +1597,7 @@ function renderSOTable(soItems){
   '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
   '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" value="'+S.today+'" readonly></div></div>'+
   '<div style="margin-top:12px">'+statusNote+'</div>'+
-  '<div class="tbl-wrap"><table class="tbl" id="so-tbl">'+
+  '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" id="so-tbl" style="min-width:540px">'+
   '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:center">Pack</th><th style="text-align:center">Ceceran</th><th style="text-align:right">Total</th></tr></thead>'+
   '<tbody>'+rowsHtml+'</tbody></table></div>'+
   '<div class="row-actions">'+actionBtn+'<div id="so-msg" class="save-msg"></div></div></div>';
@@ -2582,7 +2597,7 @@ async function renderOrder(c){
       '<div class="fg"><label>Toko</label><input class="fi2" value="'+S.store.replace('SOYASUKA_','')+'" readonly></div>'+
     '</div>'+
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin:12px 0">Isi jumlah <b>pack</b> yang ingin dipesan. Item yang dikosongkan tidak masuk PO.</div>'+
-    '<div class="tbl-wrap"><table class="tbl">'+
+    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:560px">'+
       '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Terakhir Order</th><th>Order (pack)</th></tr></thead>'+
       '<tbody>'+rows+'</tbody></table></div>'+
     '<div class="sec" style="margin-top:22px">🧾 Barang Lain (non-inbound)</div>'+
