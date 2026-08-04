@@ -420,7 +420,7 @@ function saveS(t,u,ta){ sessionStorage.setItem('_t',t); sessionStorage.setItem('
 function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_u'),ta=sessionStorage.getItem('_ta'); return t&&u?{token:t,user:JSON.parse(u),tabAccess:ta?JSON.parse(ta):null}:null; }
 function clearS(){ sessionStorage.clear(); }
 
-var WRITE_ACTIONS={saveReport:1,saveChecklist:1,saveWastage:1,saveSO:1,saveAbsensi:1,savePO:1,processPO:1,saveProfilePhoto:1,saveLaporan:1,markPORead:1};
+var WRITE_ACTIONS={saveReport:1,saveChecklist:1,saveWastage:1,saveSO:1,saveAbsensi:1,savePO:1,processPO:1,saveProfilePhoto:1,saveLaporan:1,markPORead:1,saveOvertime:1,saveClockfix:1,decideOvertime:1,decideClockfix:1,markOvertimeSeen:1,markClockfixSeen:1};
 async function api(p){
   // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
   // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
@@ -510,27 +510,40 @@ function greetNotif(){
   if(!NOTIF.count) return;
   // STAFF: kiriman PO tokomu sudah diproses admin → ajak inbound.
   if(NOTIF.kind==='staff_po'){
-    var nPO=(NOTIF.items||[]).length, nIz=(NOTIF.izin||[]).length;
+    var nPO=(NOTIF.items||[]).length;
+    var decs=(NOTIF.izin||[]).concat(NOTIF.overtime||[],NOTIF.clockfix||[]);
+    var nDec=decs.length;
     var sub='', btns='';
     if(nPO) sub+=nPO+' order sudah <b>diproses admin</b> — jangan lupa <b>Inbound</b>!';
-    if(nIz){
-      var dec=NOTIF.izin[0];
-      var apr=NOTIF.izin.filter(function(z){return z.status==='Approved';}).length;
-      var rej=nIz-apr;
-      sub+=(sub?'<br><br>':'')+'Izinmu '+
+    if(nDec){
+      var apr=decs.filter(function(z){return z.status==='Approved';}).length;
+      var rej=nDec-apr;
+      sub+=(sub?'<br><br>':'')+'Pengajuanmu '+
         (apr?('<b style="color:var(--green)">'+apr+' disetujui</b>'):'')+
         (apr&&rej?' · ':'')+
-        (rej?('<b style="color:var(--red)">'+rej+' ditolak</b>'):'')+
-        ' oleh <b>'+dec.decided_by+'</b>';
-      btns+='<button class="save-btn" style="width:100%" onclick="closePopup();showIzinDecisions()">📝 Cek Detail Izin</button>';
+        (rej?('<b style="color:var(--red)">'+rej+' ditolak</b>'):'');
+      btns+='<button class="save-btn" style="width:100%" onclick="closePopup();showMyDecisions()">📋 Cek Detail Pengajuan</button>';
     }
-    if(nPO) btns+='<button class="'+(nIz?'ftab':'save-btn')+'" style="width:100%;'+(nIz?'margin-top:8px;padding:9px':'')+'" onclick="closePopup();navigateTo(\'order-history\')">📜 Lihat Riwayat Order</button>';
+    if(nPO) btns+='<button class="'+(nDec?'ftab':'save-btn')+'" style="width:100%;'+(nDec?'margin-top:8px;padding:9px':'')+'" onclick="closePopup();navigateTo(\'order-history\')">📜 Lihat Riwayat Order</button>';
     showPopup('Halo, '+(S.user.nickname||S.user.display_name)+'!',
       '<div class="pofu-wrap">'+
         '<img src="'+POFU+'" alt="Pofu">'+
         '<div class="pofu-hl">Kamu ada '+NOTIF.count+' notifikasi!</div>'+
         '<div class="pofu-sub">'+sub+'</div>'+
       '</div>'+btns+
+      '<button class="ftab" style="width:100%;margin-top:8px;padding:9px" onclick="closePopup()">Nanti aja</button>');
+    return;
+  }
+  if(NOTIF.kind==='am_approvals'){
+    var nIz=(NOTIF.izin||[]).length, nOt=(NOTIF.overtime||[]).length, nCf=(NOTIF.clockfix||[]).length;
+    var parts=[]; if(nIz)parts.push(nIz+' izin'); if(nOt)parts.push(nOt+' overtime'); if(nCf)parts.push(nCf+' koreksi absen');
+    showPopup('Halo, '+(S.user.nickname||S.user.display_name)+'!',
+      '<div class="pofu-wrap">'+
+        '<img src="'+POFU+'" alt="Pofu">'+
+        '<div class="pofu-hl">'+NOTIF.count+' pengajuan menunggu!</div>'+
+        '<div class="pofu-sub">'+(parts.join(' · ')||'Ada pengajuan baru')+' dari staff nunggu keputusanmu.</div>'+
+      '</div>'+
+      '<button class="save-btn" style="width:100%" onclick="closePopup();navigateTo(\'izin-approval\')">📋 Buka Persetujuan</button>'+
       '<button class="ftab" style="width:100%;margin-top:8px;padding:9px" onclick="closePopup()">Nanti aja</button>');
     return;
   }
@@ -677,7 +690,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
-    {id:'izin-approval',ico:'📝',lbl:'Persetujuan Izin',sec:''},
+    {id:'izin-approval',ico:'📝',lbl:'Persetujuan',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
@@ -689,7 +702,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
-    {id:'izin-approval',ico:'📝',lbl:'Persetujuan Izin',sec:''},
+    {id:'izin-approval',ico:'📝',lbl:'Persetujuan',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
@@ -744,7 +757,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','izin-approval':'Persetujuan Izin','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -1694,7 +1707,20 @@ async function renderAbsensi(c){
   slot('ci')+slot('co')+
   '</div>'+
   '</div>'+
-  // ── Blok Izin ──
+  // ── Blok 2: Ajukan Overtime ──
+  '<div class="card">'+
+  '<div class="card-title">⏱️ Ajukan Overtime</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Ajukan lembur di sini. Kalau di-<b>ACC AM</b>, jamnya masuk rekap overtime. Jam dihitung <b>bulat</b> (mis. 1 atau 2 jam).</div>'+
+  '<div class="form-grid">'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="ot-date" value="'+S.today+'" max="'+S.today+'"></div>'+
+  '<div class="fg"><label>Jumlah Jam</label><input class="fi2" type="number" id="ot-hours" min="1" step="1" inputmode="numeric" placeholder="mis. 2"></div>'+
+  '<div class="fg full"><label>Alasan</label><input class="fi2" id="ot-reason" placeholder="Contoh: bantu closing / stock opname" maxlength="200"></div>'+
+  '</div>'+
+  '<button class="save-btn" style="width:100%;margin-top:12px" onclick="saveOvertime()">Ajukan Overtime</button>'+
+  '<div id="ot-msg" class="save-msg"></div>'+
+  '<div id="ot-list" style="margin-top:14px"></div>'+
+  '</div>'+
+  // ── Blok 3: Ajukan Izin ──
   '<div class="card">'+
   '<div class="card-title">📝 Ajukan Izin</div>'+
   '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Kalau kamu tidak masuk (hari ini atau tanggal depan, mis. acara minggu depan), ajukan izin di sini. Untuk <b>Izin Sakit</b>, foto surat dokter / bukti <b>wajib</b> dilampirkan.</div>'+
@@ -1711,60 +1737,138 @@ async function renderAbsensi(c){
   '<button class="save-btn" style="width:100%;margin-top:12px" onclick="saveIzin()">Ajukan Izin</button>'+
   '<div id="iz-msg" class="save-msg"></div>'+
   '<div id="iz-list" style="margin-top:14px"></div>'+
+  '</div>'+
+  // ── Blok 4: Koreksi Clock-in / Clock-out ──
+  '<div class="card">'+
+  '<div class="card-title">🔧 Koreksi Clock-in / Clock-out</div>'+
+  '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Buat yang <b>lupa clock-in / clock-out</b>. Pilih tanggal, pilih yang mau dikoreksi, isi jamnya. Kalau di-<b>ACC AM</b>, jam absenmu hari itu akan diisi / diperbarui.</div>'+
+  '<div class="form-grid">'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="cf-date" value="'+S.today+'" max="'+S.today+'"></div>'+
+  '<div class="fg"><label>Yang Dikoreksi</label><select class="fi2" id="cf-type"><option value="in">Clock In</option><option value="out">Clock Out</option></select></div>'+
+  '<div class="fg"><label>Jam (HH:MM)</label><input class="fi2" type="time" id="cf-time"></div>'+
+  '</div>'+
+  '<button class="save-btn" style="width:100%;margin-top:12px" onclick="saveClockfix()">Ajukan Koreksi</button>'+
+  '<div id="cf-msg" class="save-msg"></div>'+
+  '<div id="cf-list" style="margin-top:14px"></div>'+
   '</div>';
   // Nyalakan kamera hanya utk slot yg belum diabsen
   ['ci','co'].forEach(function(t){ if(document.getElementById('abs-cam-'+t)) absStartCam(t); });
-  loadMyIzin();
+  loadMyOvertime(); loadMyIzin(); loadMyClockfix();
 }
 
 // Staff lihat detail keputusan izin (dari notif) → setelah dibuka, notif dianggap terbaca.
-function showIzinDecisions(){
-  var list=NOTIF.izin||[];
+function showMyDecisions(){
+  var iz=(NOTIF.izin||[]).map(function(z){return{t:'Izin',label:z.jenis,z:z};});
+  var ot=(NOTIF.overtime||[]).map(function(z){return{t:'Overtime',label:z.hours+' jam',z:z};});
+  var cf=(NOTIF.clockfix||[]).map(function(z){return{t:'Koreksi',label:(z.clock_type==='in'?'Clock In':'Clock Out')+' '+z.time,z:z};});
+  var list=iz.concat(ot,cf);
   if(!list.length){ navigateTo('absensi'); return; }
-  var body=list.map(function(z){
-    var ok=z.status==='Approved';
+  var body=list.map(function(x){
+    var z=x.z, ok=z.status==='Approved';
     return '<div style="border:1.5px solid '+(ok?'var(--green)':'var(--red)')+';border-radius:12px;padding:12px 14px;margin-bottom:10px">'+
       '<div style="font-weight:800;color:'+(ok?'var(--green)':'var(--red)')+';margin-bottom:4px">'+(ok?'✓ DISETUJUI':'✕ DITOLAK')+'</div>'+
       '<div style="font-size:13px;line-height:1.7">'+
-        '<b>'+z.jenis+'</b> · '+fmtDateShort(z.date)+'<br>'+
+        '<b>'+x.t+': '+x.label+'</b> · '+fmtDateShort(z.date)+'<br>'+
         'Oleh: <b>'+(z.decided_by||'-')+'</b>'+
         (z.keterangan?'<br>Keteranganmu: '+z.keterangan:'')+
-        (!ok&&z.reject_reason?'<br><span style="color:var(--red)">Alasan: '+z.reject_reason+'</span>':'')+
+        (z.reason?'<br>Alasanmu: '+z.reason:'')+
+        (!ok&&z.reject_reason?'<br><span style="color:var(--red)">Alasan ditolak: '+z.reject_reason+'</span>':'')+
       '</div></div>';
   }).join('');
-  showPopup('📝 Keputusan Izin', body+
+  showPopup('📋 Keputusan Pengajuan', body+
     '<button class="save-btn" style="width:100%;margin-top:4px" onclick="closePopup()">OK, Mengerti</button>', true);
-  // tandai terbaca → notif hilang di login berikutnya
-  try{ api({action:'markIzinSeen',token:S.token,store:S.store}).then(function(){ refreshNotif(); }); }catch(e){}
+  // tandai semua terbaca → notif hilang berikutnya
+  try{
+    Promise.all([
+      api({action:'markIzinSeen',token:S.token,store:S.store}),
+      api({action:'markOvertimeSeen',token:S.token,store:S.store}),
+      api({action:'markClockfixSeen',token:S.token,store:S.store})
+    ]).then(function(){ refreshNotif(); });
+  }catch(e){}
 }
-window.showIzinDecisions=showIzinDecisions;
+window.showMyDecisions=showMyDecisions;
+window.showIzinDecisions=showMyDecisions;
 
 // ── PERSETUJUAN IZIN (AM/Owner) ──
 var IZP_LIST=[];
+var APPR={izin:[],overtime:[],clockfix:[]};
+var APPR_TAB='izin';
 async function renderIzinApproval(c){
   c.innerHTML=LOADING;
   try{
-    var r=await api({action:'getPendingIzin',token:S.token});
+    var r=await api({action:'getPendingApprovals',token:S.token});
     if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
-    IZP_LIST=r.data||[];
-    if(!IZP_LIST.length){c.innerHTML='<div class="empty"><div class="ei">✅</div><div>Tidak ada pengajuan izin yang menunggu persetujuan</div></div>';return;}
-    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">Pengajuan izin dari staff. Klik <b>Cek</b> untuk lihat keterangan &amp; lampiran, lalu putuskan. Penolakan wajib disertai alasan — alasan ini dibaca staff.</div>'+
-      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:680px">'+
-      '<thead><tr><th>Tanggal Izin</th><th>Toko</th><th>Nama</th><th>Jenis</th><th>Keterangan</th><th></th></tr></thead><tbody>'+
-      IZP_LIST.map(function(z,i){
-        var cls=z.jenis==='Izin Sakit'?'sakit':'unpaid';
-        return '<tr>'+
-          '<td style="white-space:nowrap;font-weight:600">'+fmtDateShort(z.date)+'</td>'+
-          '<td>'+String(z.store).replace('SOYASUKA_','')+'</td>'+
-          '<td style="font-weight:600">'+z.display_name+'</td>'+
-          '<td><span class="izin-badge '+cls+'">'+z.jenis+'</span></td>'+
-          '<td style="font-size:12px;color:var(--brown-soft);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(z.keterangan||'—')+'</td>'+
-          '<td><button class="ftab" style="padding:5px 14px" onclick="openIzinCheck('+i+')">👁 Cek</button></td>'+
-        '</tr>';
-      }).join('')+'</tbody></table></div>';
+    APPR={izin:r.izin||[],overtime:r.overtime||[],clockfix:r.clockfix||[]};
+    IZP_LIST=APPR.izin;   // dipakai openIzinCheck/decideIzin
+    var total=APPR.izin.length+APPR.overtime.length+APPR.clockfix.length;
+    if(!total){c.innerHTML='<div class="empty"><div class="ei">✅</div><div>Tidak ada pengajuan yang menunggu persetujuan</div></div>';return;}
+    if(!APPR[APPR_TAB]||!APPR[APPR_TAB].length){
+      APPR_TAB=APPR.izin.length?'izin':APPR.overtime.length?'overtime':'clockfix';
+    }
+    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Pengajuan dari staff. Klik <b>Cek</b> untuk lihat detail, lalu putuskan. Penolakan wajib disertai alasan — alasan ini dibaca staff.</div>'+
+      '<div id="appr-pills"></div><div id="appr-body"></div>';
+    renderApprPills(); renderApprSection();
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.renderIzinApproval=renderIzinApproval;
+
+function apprPill(id,label,n){
+  var active=APPR_TAB===id;
+  return '<button onclick="apprSwitch(\''+id+'\')" style="flex:1;padding:9px 4px;border:1.5px solid '+(active?'var(--brown-deep)':'var(--line)')+';background:'+(active?'var(--brown-deep)':'var(--surface)')+';color:'+(active?'#fff':'var(--brown-deep)')+';border-radius:10px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">'+label+(n?' ('+n+')':'')+'</button>';
+}
+function renderApprPills(){
+  var el=document.getElementById('appr-pills'); if(!el) return;
+  el.innerHTML='<div style="display:flex;gap:8px;margin-bottom:14px">'+
+    apprPill('izin','📝 Izin',APPR.izin.length)+
+    apprPill('overtime','⏱️ Overtime',APPR.overtime.length)+
+    apprPill('clockfix','🔧 Koreksi',APPR.clockfix.length)+
+  '</div>';
+}
+function apprSwitch(id){ APPR_TAB=id; renderApprPills(); renderApprSection(); }
+window.apprSwitch=apprSwitch;
+
+function renderApprSection(){
+  var body=document.getElementById('appr-body'); if(!body) return;
+  var list=APPR[APPR_TAB]||[];
+  if(!list.length){ body.innerHTML='<div class="empty" style="padding:22px"><div class="ei">✅</div><div>Tidak ada pengajuan di kategori ini</div></div>'; return; }
+  var head,rows;
+  if(APPR_TAB==='izin'){
+    head='<th>Tanggal</th><th>Toko</th><th>Nama</th><th>Jenis</th><th>Keterangan</th><th></th>';
+    rows=list.map(function(z,i){
+      var cls=z.jenis==='Izin Sakit'?'sakit':'unpaid';
+      return '<tr><td style="white-space:nowrap;font-weight:600">'+fmtDateShort(z.date)+'</td>'+
+        '<td>'+String(z.store).replace('SOYASUKA_','')+'</td>'+
+        '<td style="font-weight:600">'+z.display_name+'</td>'+
+        '<td><span class="izin-badge '+cls+'">'+z.jenis+'</span></td>'+
+        '<td style="font-size:12px;color:var(--brown-soft);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(z.keterangan||'—')+'</td>'+
+        '<td><button class="ftab" style="padding:5px 14px" onclick="openIzinCheck('+i+')">👁 Cek</button></td></tr>';
+    }).join('');
+  } else if(APPR_TAB==='overtime'){
+    head='<th>Tanggal</th><th>Toko</th><th>Nama</th><th style="text-align:center">Jam</th><th>Alasan</th><th></th>';
+    rows=list.map(function(z,i){
+      return '<tr><td style="white-space:nowrap;font-weight:600">'+fmtDateShort(z.date)+'</td>'+
+        '<td>'+String(z.store).replace('SOYASUKA_','')+'</td>'+
+        '<td style="font-weight:600">'+z.display_name+'</td>'+
+        '<td style="text-align:center;font-weight:700">'+z.hours+' jam</td>'+
+        '<td style="font-size:12px;color:var(--brown-soft);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(z.reason||'—')+'</td>'+
+        '<td><button class="ftab" style="padding:5px 14px" onclick="openOvertimeCheck('+i+')">👁 Cek</button></td></tr>';
+    }).join('');
+  } else {
+    head='<th>Tanggal</th><th>Toko</th><th>Nama</th><th>Koreksi</th><th style="text-align:center">Jam</th><th></th>';
+    rows=list.map(function(z,i){
+      return '<tr><td style="white-space:nowrap;font-weight:600">'+fmtDateShort(z.date)+'</td>'+
+        '<td>'+String(z.store).replace('SOYASUKA_','')+'</td>'+
+        '<td style="font-weight:600">'+z.display_name+'</td>'+
+        '<td><span class="izin-badge" style="background:#EAF1F8;color:var(--blue)">'+(z.clock_type==='in'?'Clock In':'Clock Out')+'</span></td>'+
+        '<td style="text-align:center;font-weight:700">'+z.time+'</td>'+
+        '<td><button class="ftab" style="padding:5px 14px" onclick="openClockfixCheck('+i+')">👁 Cek</button></td></tr>';
+    }).join('');
+  }
+  body.innerHTML='<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:640px"><thead><tr>'+head+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+function apprShowReject(prefix){ var d=document.getElementById(prefix+'-reject'); if(d){ d.style.display='block'; var inp=document.getElementById(prefix+'-reason'); if(inp)inp.focus(); } }
+window.apprShowReject=apprShowReject;
 
 function openIzinCheck(i){
   var z=IZP_LIST[i]; if(!z) return;
@@ -1814,6 +1918,89 @@ async function decideIzin(i,decision){
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
 }
 window.decideIzin=decideIzin;
+
+function openOvertimeCheck(i){
+  var z=APPR.overtime[i]; if(!z) return;
+  showPopup('⏱️ Overtime — '+z.display_name,
+    '<div style="font-size:13.5px;line-height:1.8;margin-bottom:12px">'+
+      '<b>Tanggal:</b> '+fmtDateShort(z.date)+'<br>'+
+      '<b>Toko:</b> '+String(z.store).replace('SOYASUKA_','')+'<br>'+
+      '<b>Jumlah Jam:</b> '+z.hours+' jam<br>'+
+      '<b>Alasan:</b> '+(z.reason||'<span style="color:var(--brown-soft)">—</span>')+'<br>'+
+      '<b>Diajukan:</b> '+(z.created_at?String(z.created_at).slice(0,10):'-')+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Kalau disetujui, <b>'+z.hours+' jam</b> masuk sheet OVERTIME (rekap) di kolom tanggal '+fmtDateShort(z.date)+'.</div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="save-btn" style="flex:1;background:var(--green)" onclick="decideOvertime('+i+',\'Approved\')">✓ Approve</button>'+
+      '<button class="save-btn" style="flex:1;background:var(--red)" onclick="apprShowReject(\'otp\')">✕ Reject</button>'+
+    '</div>'+
+    '<div id="otp-reject" style="display:none;margin-top:12px">'+
+      '<label style="font-size:12px;font-weight:700;color:var(--brown-deep)">Alasan penolakan (wajib, dibaca staff)</label>'+
+      '<input class="fi2" id="otp-reason" style="margin-top:6px" maxlength="200" placeholder="Contoh: jam itu bukan overtime">'+
+      '<button class="save-btn" style="width:100%;margin-top:10px;background:var(--red)" onclick="decideOvertime('+i+',\'Rejected\')">Kirim Penolakan</button>'+
+    '</div>'+
+    '<div id="otp-msg" class="save-msg"></div>', true);
+}
+window.openOvertimeCheck=openOvertimeCheck;
+
+async function decideOvertime(i,decision){
+  var z=APPR.overtime[i]; if(!z) return;
+  var msg=document.getElementById('otp-msg'); var reason='';
+  if(decision==='Rejected'){
+    reason=((document.getElementById('otp-reason')||{}).value||'').trim();
+    if(!reason){ if(msg){msg.textContent='❌ Alasan penolakan wajib diisi';msg.className='save-msg err';} return; }
+  }
+  try{
+    var r=await api({action:'decideOvertime',token:S.token,store:z.store,date:z.date,username:z.username,decision:decision,reason:reason});
+    if(r&&r.ok){
+      if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui — jam masuk rekap':'✅ Ditolak — staff diberi tahu';msg.className='save-msg ok';}
+      setTimeout(function(){ closePopup(); refreshNotif(); navigateTo('izin-approval'); },800);
+    } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
+  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
+}
+window.decideOvertime=decideOvertime;
+
+function openClockfixCheck(i){
+  var z=APPR.clockfix[i]; if(!z) return;
+  var lbl=z.clock_type==='in'?'Clock In':'Clock Out';
+  showPopup('🔧 Koreksi Absen — '+z.display_name,
+    '<div style="font-size:13.5px;line-height:1.8;margin-bottom:12px">'+
+      '<b>Tanggal:</b> '+fmtDateShort(z.date)+'<br>'+
+      '<b>Toko:</b> '+String(z.store).replace('SOYASUKA_','')+'<br>'+
+      '<b>Yang dikoreksi:</b> '+lbl+'<br>'+
+      '<b>Jam diminta:</b> '+z.time+'<br>'+
+      '<b>Diajukan:</b> '+(z.created_at?String(z.created_at).slice(0,10):'-')+
+    '</div>'+
+    '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">Kalau disetujui, <b>'+lbl+'</b> di ABSENSI tanggal '+fmtDateShort(z.date)+' akan diisi/ditimpa jadi <b>'+z.time+'</b>.</div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="save-btn" style="flex:1;background:var(--green)" onclick="decideClockfix('+i+',\'Approved\')">✓ Approve</button>'+
+      '<button class="save-btn" style="flex:1;background:var(--red)" onclick="apprShowReject(\'cfp\')">✕ Reject</button>'+
+    '</div>'+
+    '<div id="cfp-reject" style="display:none;margin-top:12px">'+
+      '<label style="font-size:12px;font-weight:700;color:var(--brown-deep)">Alasan penolakan (wajib, dibaca staff)</label>'+
+      '<input class="fi2" id="cfp-reason" style="margin-top:6px" maxlength="200" placeholder="Contoh: jam tidak sesuai jadwal">'+
+      '<button class="save-btn" style="width:100%;margin-top:10px;background:var(--red)" onclick="decideClockfix('+i+',\'Rejected\')">Kirim Penolakan</button>'+
+    '</div>'+
+    '<div id="cfp-msg" class="save-msg"></div>', true);
+}
+window.openClockfixCheck=openClockfixCheck;
+
+async function decideClockfix(i,decision){
+  var z=APPR.clockfix[i]; if(!z) return;
+  var msg=document.getElementById('cfp-msg'); var reason='';
+  if(decision==='Rejected'){
+    reason=((document.getElementById('cfp-reason')||{}).value||'').trim();
+    if(!reason){ if(msg){msg.textContent='❌ Alasan penolakan wajib diisi';msg.className='save-msg err';} return; }
+  }
+  try{
+    var r=await api({action:'decideClockfix',token:S.token,store:z.store,date:z.date,username:z.username,clock_type:z.clock_type,decision:decision,reason:reason});
+    if(r&&r.ok){
+      if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui — absen diperbarui':'✅ Ditolak — staff diberi tahu';msg.className='save-msg ok';}
+      setTimeout(function(){ closePopup(); refreshNotif(); navigateTo('izin-approval'); },800);
+    } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
+  }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
+}
+window.decideClockfix=decideClockfix;
 
 // ── IZIN ──
 var izinPhoto=null;
@@ -1904,6 +2091,96 @@ async function loadMyIzin(){
   }catch(e){ box.innerHTML=''; }
 }
 window.loadMyIzin=loadMyIzin;
+
+// Badge status keputusan (dipakai overtime & koreksi clock)
+function decisionBadge(st,reason){
+  return st==='Pending'?'<span class="izin-badge" style="background:#FEF6E8;color:var(--gold)">⏳ Menunggu</span>'
+    :st==='Rejected'?'<span class="izin-badge" style="background:#FFF0EE;color:var(--red)" title="'+String(reason||'').replace(/"/g,'')+'">✕ Ditolak</span>'
+    :'<span class="izin-badge" style="background:#EEF7EE;color:var(--green)">✓ Disetujui</span>';
+}
+
+// ── OVERTIME (staff) ──
+async function saveOvertime(){
+  var date=(document.getElementById('ot-date')||{}).value||S.today;
+  var hours=Math.floor(Number((document.getElementById('ot-hours')||{}).value||0));
+  var reason=((document.getElementById('ot-reason')||{}).value||'').trim();
+  var msg=document.getElementById('ot-msg');
+  function err(m){ if(msg){msg.textContent='❌ '+m;msg.className='save-msg err';} }
+  if(hours<1) return err('Isi jumlah jam (bulat, minimal 1)');
+  if(!reason) return err('Alasan overtime wajib diisi');
+  var btn=document.querySelector('[onclick="saveOvertime()"]'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'saveOvertime',token:S.token,store:S.store,date:date,hours:hours,reason:reason});
+    if(r&&r.ok){
+      if(msg){msg.textContent=r.updated?'✅ Pengajuan overtime tanggal ini diperbarui':'✅ Overtime diajukan — nunggu ACC AM';msg.className='save-msg ok';}
+      var h=document.getElementById('ot-hours'); if(h)h.value=''; var rs=document.getElementById('ot-reason'); if(rs)rs.value='';
+      loadMyOvertime();
+    } else err((r&&r.error)||'Gagal');
+  }catch(e){ err(e.message); }
+  if(btn){btn.disabled=false;btn.textContent='Ajukan Overtime';}
+}
+window.saveOvertime=saveOvertime;
+
+async function loadMyOvertime(){
+  var box=document.getElementById('ot-list'); if(!box) return;
+  try{
+    var r=await api({action:'getMyOvertime',token:S.token,store:S.store,month:S.today.slice(0,7)});
+    var rows=(r&&r.data)||[];
+    if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--brown-soft);text-align:center;padding:6px">Belum ada overtime bulan ini</div>'; return; }
+    box.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-bottom:8px">Overtime bulan ini</div>'+
+      rows.map(function(z){
+        var st=z.status||'Pending';
+        return '<div class="izin-row">'+
+          '<span style="font-size:12px;font-weight:700;white-space:nowrap">'+fmtDateShort(z.date)+'</span>'+
+          '<span class="izin-badge" style="background:#FEF3E7;color:var(--orange)">'+z.hours+' jam</span>'+
+          decisionBadge(st,z.reject_reason)+
+          '<span style="font-size:12px;color:var(--brown-soft);flex:1;overflow:hidden;text-overflow:ellipsis">'+(st==='Rejected'&&z.reject_reason?'Alasan: '+z.reject_reason:(z.reason||''))+'</span>'+
+        '</div>';
+      }).join('');
+  }catch(e){ box.innerHTML=''; }
+}
+window.loadMyOvertime=loadMyOvertime;
+
+// ── KOREKSI CLOCK (staff) ──
+async function saveClockfix(){
+  var date=(document.getElementById('cf-date')||{}).value||S.today;
+  var ctype=(document.getElementById('cf-type')||{}).value||'in';
+  var time=((document.getElementById('cf-time')||{}).value||'').trim();
+  var msg=document.getElementById('cf-msg');
+  function err(m){ if(msg){msg.textContent='❌ '+m;msg.className='save-msg err';} }
+  if(!/^\d{2}:\d{2}$/.test(time)) return err('Isi jam (HH:MM) dulu');
+  var btn=document.querySelector('[onclick="saveClockfix()"]'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'saveClockfix',token:S.token,store:S.store,date:date,clock_type:ctype,time:time});
+    if(r&&r.ok){
+      if(msg){msg.textContent=r.updated?'✅ Pengajuan koreksi diperbarui':'✅ Koreksi diajukan — nunggu ACC AM';msg.className='save-msg ok';}
+      var t=document.getElementById('cf-time'); if(t)t.value='';
+      loadMyClockfix();
+    } else err((r&&r.error)||'Gagal');
+  }catch(e){ err(e.message); }
+  if(btn){btn.disabled=false;btn.textContent='Ajukan Koreksi';}
+}
+window.saveClockfix=saveClockfix;
+
+async function loadMyClockfix(){
+  var box=document.getElementById('cf-list'); if(!box) return;
+  try{
+    var r=await api({action:'getMyClockfix',token:S.token,store:S.store,month:S.today.slice(0,7)});
+    var rows=(r&&r.data)||[];
+    if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--brown-soft);text-align:center;padding:6px">Belum ada pengajuan koreksi bulan ini</div>'; return; }
+    box.innerHTML='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-bottom:8px">Koreksi bulan ini</div>'+
+      rows.map(function(z){
+        var st=z.status||'Pending';
+        return '<div class="izin-row">'+
+          '<span style="font-size:12px;font-weight:700;white-space:nowrap">'+fmtDateShort(z.date)+'</span>'+
+          '<span class="izin-badge" style="background:#EAF1F8;color:var(--blue)">'+(z.clock_type==='in'?'Clock In':'Clock Out')+' '+z.time+'</span>'+
+          decisionBadge(st,z.reject_reason)+
+          '<span style="font-size:12px;color:var(--brown-soft);flex:1;overflow:hidden;text-overflow:ellipsis">'+(st==='Rejected'&&z.reject_reason?'Alasan: '+z.reject_reason:'')+'</span>'+
+        '</div>';
+      }).join('');
+  }catch(e){ box.innerHTML=''; }
+}
+window.loadMyClockfix=loadMyClockfix;
 // ── LIVE CAMERA ABSENSI ──
 // Sengaja TIDAK pakai <input type=file>: upload dari galeri harus mustahil,
 // termasuk saat dibuka dari laptop. Semua foto wajib hasil jepret langsung.
@@ -3555,14 +3832,15 @@ var NOTIF={count:0,items:[]};
 function canSeePO(){ return ['Owner','Admin'].indexOf(S.user.role)>=0 && canTab('incoming-po'); }
 async function refreshNotif(){
   var bell=document.getElementById('bell');
-  // Staff juga punya notif sekarang (PO tokonya diproses admin) — bell tampil utk semua kecuali HR/AM.
+  // Staff: PO tokonya diproses + keputusan izin/overtime/koreksi. AM: pengajuan pending.
   var staffNotif = S.user.role==='Staff';
-  if(!canSeePO() && !staffNotif){ if(bell) bell.style.display='none'; return; }
+  var amNotif = S.user.role==='AM';
+  if(!canSeePO() && !staffNotif && !amNotif){ if(bell) bell.style.display='none'; return; }
   if(bell) bell.style.display='';
   try{
     var r=await api({action:'getPONotif',token:S.token,store:S.store});
     if(!r.ok) return;
-    NOTIF={count:r.count||0,items:r.items||[],izin:r.izin||[],kind:r.kind||''};
+    NOTIF={count:r.count||0,items:r.items||[],izin:r.izin||[],overtime:r.overtime||[],clockfix:r.clockfix||[],kind:r.kind||''};
     var b=document.getElementById('bell-badge');
     if(b){
       if(NOTIF.count>0){ b.textContent=NOTIF.count>99?'99+':NOTIF.count; b.style.display='flex'; }
@@ -3577,14 +3855,17 @@ function openNotif(){
   if(!NOTIF.count){
     body='<div class="empty" style="padding:26px"><div class="ei">🔕</div><div>Tidak ada notifikasi baru</div></div>';
   } else if(NOTIF.kind==='staff_po'){
-    var izRows=(NOTIF.izin||[]).map(function(z){
+    function decRow(kind,label,z){
       var ok=z.status==='Approved';
-      return '<div class="notif-item" onclick="closePopup();showIzinDecisions()">'+
-        '<div style="font-weight:700;color:'+(ok?'var(--green)':'var(--red)')+';font-size:13.5px;margin-bottom:3px">'+(ok?'✓ Izin Disetujui':'✕ Izin Ditolak')+'</div>'+
-        '<div style="font-size:12.5px;color:var(--brown-soft)">'+z.jenis+' '+fmtDateShort(z.date)+' · oleh '+(z.decided_by||'-')+' — klik utk detail</div>'+
+      return '<div class="notif-item" onclick="closePopup();showMyDecisions()">'+
+        '<div style="font-weight:700;color:'+(ok?'var(--green)':'var(--red)')+';font-size:13.5px;margin-bottom:3px">'+(ok?'✓ '+label+' Disetujui':'✕ '+label+' Ditolak')+'</div>'+
+        '<div style="font-size:12.5px;color:var(--brown-soft)">'+kind+' '+fmtDateShort(z.date)+' · oleh '+(z.decided_by||'-')+' — klik utk detail</div>'+
       '</div>';
-    }).join('');
-    body=izRows+NOTIF.items.map(function(n){
+    }
+    var decRows=(NOTIF.izin||[]).map(function(z){return decRow(z.jenis,'Izin',z);}).join('')+
+      (NOTIF.overtime||[]).map(function(z){return decRow('Overtime '+z.hours+' jam','Overtime',z);}).join('')+
+      (NOTIF.clockfix||[]).map(function(z){return decRow('Koreksi '+(z.clock_type==='in'?'Clock In':'Clock Out')+' '+z.time,'Koreksi',z);}).join('');
+    body=decRows+(NOTIF.items||[]).map(function(n){
       return '<div class="notif-item" onclick="closePopup();navigateTo(\'order-history\')">'+
         '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:3px">'+
           '<span style="font-weight:700;color:var(--brown-deep);font-size:13.5px">🚚 Order Diproses</span>'+
@@ -3594,6 +3875,18 @@ function openNotif(){
       '</div>';
     }).join('');
     showPopup('🔔 Notifikasi', body);
+    return;
+  } else if(NOTIF.kind==='am_approvals'){
+    function pendRow(kind,label,extra){
+      return '<div class="notif-item" onclick="closePopup();navigateTo(\'izin-approval\')">'+
+        '<div style="font-weight:700;color:var(--brown-deep);font-size:13.5px;margin-bottom:3px">'+label+'</div>'+
+        '<div style="font-size:12.5px;color:var(--brown-soft)">'+extra+' — klik utk putuskan</div>'+
+      '</div>';
+    }
+    body=(NOTIF.izin||[]).map(function(z){return pendRow('izin','📝 Izin — '+z.display_name,z.jenis+' '+fmtDateShort(z.date)+' · '+String(z.store).replace('SOYASUKA_',''));}).join('')+
+      (NOTIF.overtime||[]).map(function(z){return pendRow('ot','⏱️ Overtime — '+z.display_name,z.hours+' jam '+fmtDateShort(z.date)+' · '+String(z.store).replace('SOYASUKA_',''));}).join('')+
+      (NOTIF.clockfix||[]).map(function(z){return pendRow('cf','🔧 Koreksi — '+z.display_name,(z.clock_type==='in'?'Clock In':'Clock Out')+' '+z.time+' '+fmtDateShort(z.date)+' · '+String(z.store).replace('SOYASUKA_',''));}).join('');
+    showPopup('🔔 Pengajuan Menunggu ('+NOTIF.count+')', body);
     return;
   } else {
     body=NOTIF.items.map(function(n){
