@@ -690,6 +690,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
+    {id:'overtime-rekap',ico:'⏱️',lbl:'Rekap Overtime',sec:''},
     {id:'izin-approval',ico:'📝',lbl:'Persetujuan',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
@@ -702,6 +703,7 @@ var NAV_DEFS = {
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:''},
+    {id:'overtime-rekap',ico:'⏱️',lbl:'Rekap Overtime',sec:''},
     {id:'izin-approval',ico:'📝',lbl:'Persetujuan',sec:''},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
@@ -724,6 +726,7 @@ var NAV_DEFS = {
   HR:[
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:'Monitoring'},
+    {id:'overtime-rekap',ico:'⏱️',lbl:'Rekap Overtime',sec:''},
   ]
 };
 
@@ -757,7 +760,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -826,6 +829,7 @@ async function renderPage(id){
     case 'so': await renderSO(c); break;
     case 'absensi': await renderAbsensi(c); break;
     case 'cek-absensi': await renderCekAbsensi(c); break;
+    case 'overtime-rekap': await renderOvertimeRekap(c); break;
     case 'izin-approval': await renderIzinApproval(c); break;
     case 'perf-overview': renderPerfOverview(c); break;
     case 'wastage-view': await renderWastageView(c); break;
@@ -1439,7 +1443,19 @@ async function loadCVData(){
   document.getElementById('cv-content').innerHTML='<div class="sec">☀️ Opening ('+co.filter(function(r){return r[2]==='done';}).length+'/'+co.length+')</div>'+mkTable(co)+'<div class="sec" style="margin-top:16px">🌙 Closing ('+cc.filter(function(r){return r[2]==='done';}).length+'/'+cc.length+')</div>'+mkTable(cc);
 }
 window.loadCVData=loadCVData;
-function fmtTime(s){if(!s)return '';if(/^\d{1,2}:\d{2}$/.test(String(s)))return s;try{return new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
+// Normalisasi nilai jam absensi → {hm:'HH:mm', d:Date}. Data lama = UTC ISO (…Z) dikonversi +7 ke WIB;
+// data baru = 'yyyy-mm-dd HH:mm' (sudah WIB) ditampilkan apa adanya. d dipakai utk hitung selisih jam.
+function clockWIB(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(v instanceof Date){ var w=new Date(v.getTime()+7*3600000); return {hm:w.toISOString().substr(11,5), d:w}; }
+  var s=String(v).trim();
+  if(/^\d{4}-\d{2}-\d{2}T/.test(s) && /Z$/.test(s)){ var d=new Date(s); if(isNaN(d)) return {hm:'',d:null}; var w2=new Date(d.getTime()+7*3600000); return {hm:w2.toISOString().substr(11,5), d:w2}; }
+  var m=s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  if(m){ return {hm:m[2], d:new Date(m[1]+'T'+m[2]+':00Z')}; }
+  if(/^\d{1,2}:\d{2}$/.test(s)){ var p2=s.split(':'); return {hm:('0'+p2[0]).slice(-2)+':'+p2[1], d:null}; }
+  return {hm:s, d:null};
+}
+function fmtTime(s){ var c=clockWIB(s); return c?c.hm:''; }
 
 // =========================================================
 // WASTAGE (Staff input)
@@ -1679,7 +1695,7 @@ async function renderAbsensi(c){
     var btnBg=type==='ci'?'':'background:var(--orange)';
     var btnLbl=type==='ci'?'Simpan Clock In':'Simpan Clock Out';
     if(done){
-      var jam='';try{jam=new Date(tm).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}catch(e){}
+      var jam=fmtTime(tm);
       return '<div class="card" style="margin-bottom:0">'+
         '<div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:10px">'+label+'</div>'+
         (url?'<img src="'+url+'" style="width:100%;max-height:200px;object-fit:cover;border-radius:12px;cursor:pointer" onclick="openAbsPhoto(\''+url+'\')">':'')+
@@ -2272,13 +2288,14 @@ window.saveAbsensiType=saveAbsensiType;
 // =========================================================
 async function renderCekAbsensi(c){
   var now=new Date();
+  var hrDefault = S.user.role==='HR';   // HR default ke periode gajian
   var months=[]; for(var i=0;i<12;i++){var d=new Date(2026,i,1);months.push({val:d.toISOString().slice(0,7),lbl:d.toLocaleDateString('id-ID',{month:'long',year:'numeric'})});}
   var curMonth=now.toISOString().slice(0,7);
   c.innerHTML='<div class="abs-filter">'+
   '<select id="ca-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
   '<select id="ca-mode" onchange="caModeHint()">'+
-    '<option value="month">Per Bulan (tgl 1–akhir)</option>'+
-    '<option value="payroll">Periode Gajian (tgl 26–25)</option>'+
+    '<option value="month"'+(hrDefault?'':' selected')+'>Per Bulan (tgl 1–akhir)</option>'+
+    '<option value="payroll"'+(hrDefault?' selected':'')+'>Periode Gajian (tgl 26–25)</option>'+
   '</select>'+
   '<input type="month" id="ca-month" value="'+curMonth+'" onchange="caModeHint()">'+
   '<button class="save-btn" onclick="loadCekAbsensi()">Tampilkan</button></div>'+
@@ -2319,12 +2336,11 @@ function caDates(from,to){
   return out;
 }
 
-// Selisih jam clock in → clock out. Balik 0 kalau salah satu kosong / tidak masuk akal.
+// Selisih jam clock in → clock out (WIB). Tahan campuran format lama/baru. 0 kalau tidak masuk akal.
 function jamKerja(ci,co){
-  if(!ci||!co) return 0;
-  var a=new Date(ci), b=new Date(co);
-  if(isNaN(a)||isNaN(b)) return 0;
-  var h=(b-a)/3600000;
+  var a=clockWIB(ci), b=clockWIB(co);
+  if(!a||!b||!a.d||!b.d) return 0;
+  var h=(b.d-a.d)/3600000;
   return (h>0&&h<24)?h:0;
 }
 
@@ -2429,6 +2445,86 @@ async function loadCekAbsensi(){
   }catch(e){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.loadCekAbsensi=loadCekAbsensi;
+
+// ── REKAP OVERTIME (HR / Owner / AM) ──
+var _otRekap=[];
+async function renderOvertimeRekap(c){
+  var now=new Date();
+  var curMonth=now.toISOString().slice(0,7);
+  c.innerHTML='<div class="abs-filter">'+
+    '<select id="or-store"><option value="">— Semua Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
+    '<select id="or-mode" onchange="orModeHint()">'+
+      '<option value="payroll" selected>Periode Gajian (tgl 26–25)</option>'+
+      '<option value="month">Per Bulan (tgl 1–akhir)</option>'+
+    '</select>'+
+    '<input type="month" id="or-month" value="'+curMonth+'" onchange="orModeHint()">'+
+    '<button class="save-btn" onclick="loadOvertimeRekap()">Tampilkan</button></div>'+
+    '<div id="or-hint" style="font-size:12px;color:var(--brown-soft);margin:-6px 0 12px 2px"></div>'+
+    '<div id="or-content"><div class="empty"><div class="ei">⏱️</div><div>Pilih periode lalu klik Tampilkan</div></div></div>';
+  orModeHint();
+}
+window.renderOvertimeRekap=renderOvertimeRekap;
+
+function orModeHint(){
+  var mode=(document.getElementById('or-mode')||{}).value||'payroll';
+  var month=(document.getElementById('or-month')||{}).value||'';
+  var el=document.getElementById('or-hint'); if(!el||!month) return;
+  var r=caRange(mode,month);
+  el.textContent='Periode: '+fmtDateShort(r.from)+' – '+fmtDateShort(r.to);
+}
+window.orModeHint=orModeHint;
+
+async function loadOvertimeRekap(){
+  var store=(document.getElementById('or-store')||{}).value;
+  var mode=(document.getElementById('or-mode')||{}).value||'payroll';
+  var month=(document.getElementById('or-month')||{}).value;
+  if(!month) return;
+  var rg=caRange(mode,month);
+  var box=document.getElementById('or-content'); box.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getOvertimeRekap',token:S.token,store:store,from:rg.from,to:rg.to});
+    if(!r.ok){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>'; return; }
+    _otRekap=r.data||[];
+    if(!_otRekap.length){ box.innerHTML='<div class="empty"><div class="ei">📭</div><div>Belum ada overtime disetujui di periode ini</div></div>'; return; }
+    var grand=_otRekap.reduce(function(s,o){return s+o.total;},0);
+    box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<div class="sec" style="margin:0">⏱️ Rekap Overtime · '+fmtDateShort(rg.from)+'–'+fmtDateShort(rg.to)+'</div>'+
+      '<button class="ftab" style="padding:6px 14px" onclick="exportOtRekapCSV()">⬇ Export CSV</button></div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:520px"><thead><tr>'+
+      '<th>Nama</th><th>Toko</th><th style="text-align:center">Total Jam</th><th></th></tr></thead><tbody>'+
+      _otRekap.map(function(o,i){
+        return '<tr>'+
+          '<td style="font-weight:600">'+o.display_name+'</td>'+
+          '<td>'+String(o.store).replace('SOYASUKA_','')+'</td>'+
+          '<td style="text-align:center;font-weight:700">'+o.total+' jam</td>'+
+          '<td><button class="ftab" style="padding:5px 12px" onclick="showOtDetail('+i+')">📅 Detail</button></td>'+
+        '</tr>';
+      }).join('')+
+      '<tr style="background:var(--surface2);font-weight:800"><td colspan="2">TOTAL</td><td style="text-align:center">'+grand+' jam</td><td></td></tr>'+
+      '</tbody></table></div>';
+  }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
+}
+window.loadOvertimeRekap=loadOvertimeRekap;
+
+function showOtDetail(i){
+  var o=_otRekap[i]; if(!o) return;
+  var rows=(o.days||[]).map(function(d){
+    return '<tr><td style="padding:4px 8px">'+fmtDateShort(d.date)+'</td><td style="padding:4px 8px;text-align:right;font-weight:700">'+d.hours+' jam</td></tr>';
+  }).join('');
+  showPopup('⏱️ Overtime — '+o.display_name,
+    '<div style="font-size:13px;color:var(--brown-soft);margin-bottom:10px">'+String(o.store).replace('SOYASUKA_','')+' · total <b>'+o.total+' jam</b></div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1.5px solid var(--line)"><th style="text-align:left;padding:4px 8px">Tanggal</th><th style="text-align:right;padding:4px 8px">Jam</th></tr></thead><tbody>'+rows+'</tbody></table>', true);
+}
+window.showOtDetail=showOtDetail;
+
+function exportOtRekapCSV(){
+  if(!_otRekap.length) return;
+  var lines=[['Nama','Toko','Total Jam Overtime']].concat(_otRekap.map(function(o){return [o.display_name,String(o.store).replace('SOYASUKA_',''),o.total];}));
+  var csv=lines.map(function(r){return r.map(function(x){return '"'+String(x).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  var blob=new Blob([csv],{type:'text/csv'}); var url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download='rekap_overtime.csv'; a.click(); URL.revokeObjectURL(url);
+}
+window.exportOtRekapCSV=exportOtRekapCSV;
 
 var _rekapCtx=null;
 function showIzinDetail(json){
