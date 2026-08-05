@@ -1470,7 +1470,7 @@ async function renderWastage(c){
   c.innerHTML='<div class="card">'+
   '<div class="card-title">🗑️ Input Wastage</div>'+
   '<div class="form-grid">'+
-  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="wst-date" value="'+S.today+'" readonly title="Tanggal otomatis hari ini"></div>'+
+  '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="wst-date" value="'+S.today+'" max="'+S.today+'" title="Bisa pilih hari ini atau tanggal sebelumnya (kalau lupa input)"></div>'+
   '<div class="fg"><label>Bahan / Menu</label><select class="fi2" id="wst-item" onchange="fillUnit()">'+ingOpts+'</select></div>'+
   '<div class="fg"><label>Jumlah</label><input class="fi2" type="number" id="wst-qty" placeholder="0"></div>'+
   '<div class="fg"><label>Satuan</label><input class="fi2" type="text" id="wst-unit" placeholder="–" readonly></div>'+
@@ -1496,12 +1496,14 @@ async function submitWastage(){
   var notes=document.getElementById('wst-notes')?document.getElementById('wst-notes').value.trim():'';
   if(!item||!qty||!reason){showWM('Lengkapi item, jumlah, dan alasan','err');return;}
   if(reason==='Lainnya'&&!notes){showWM('Alasan "Lainnya" wajib mengisi Catatan','err');var nn=document.getElementById('wst-notes');if(nn)nn.focus();return;}
+  var wdate=(document.getElementById('wst-date')||{}).value||S.today;
+  if(wdate>S.today){showWM('Tanggal tidak boleh melewati hari ini','err');return;}
   var btn=document.querySelector('.card .save-btn');if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   var photo_url='';
   if(wstPhoto){try{var pr=await api({action:'uploadPhoto',token:S.token,store:S.store,photo_base64:wstPhoto,subfolder:'WASTAGE',filename:'wastage_'+S.today+'_'+Date.now()+'.jpg'});if(pr.ok)photo_url=pr.url;}catch(e){}}
   try{
     var r=await api({action:'saveWastage',token:S.token,store:S.store,date:document.getElementById('wst-date').value,item_name:item,quantity:qty,unit:document.getElementById('wst-unit').value,reason:reason,photo_url:photo_url,notes:document.getElementById('wst-notes').value});
-    if(r.ok){showWM('✅ Wastage tersimpan','ok');wstPhoto=null;setTimeout(function(){navigateTo('wastage');},1200);}
+    if(r.ok){showWM('✅ Wastage tersimpan ('+fmtDateShort(wdate)+')','ok');wstPhoto=null;setTimeout(function(){navigateTo('wastage');},1200);}
     else showWM('❌ '+r.error,'err');
   }catch(e){showWM('❌ '+e.message,'err');}
   if(btn){btn.disabled=false;btn.textContent='+ Tambah Wastage';}
