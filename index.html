@@ -415,6 +415,11 @@ function todayWIB(){ var d=new Date(Date.now()+7*3600000); return d.toISOString(
 function fmtDate(s){ if(!s)return '–'; var d=new Date(s+'T00:00:00'); return d.toLocaleDateString('id-ID',{weekday:'long',year:'numeric',month:'long',day:'numeric'}); }
 function fmtDateShort(s){ if(!s)return '–'; var d=new Date(s+'T00:00:00'); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}); }
 function fmtRp(n){ n=Number(n)||0; return 'Rp '+n.toLocaleString('id-ID'); }
+// Rupiah dgn tepat 2 desimal — khusus nilai wastage.
+function fmtRp2(n){ n=Number(n)||0; return 'Rp '+n.toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// Popup foto (hindari escaping quote di onclick).
+function showImg(url){ if(url) showPopup('Foto Wastage','<img src="'+url+'" style="max-width:100%;border-radius:10px">'); }
+window.showImg=showImg;
 function pct(n){ n=Number(n)||0; return (n<=1&&n>0?n*100:n).toFixed(0)+'%'; }
 function saveS(t,u,ta){ sessionStorage.setItem('_t',t); sessionStorage.setItem('_u',JSON.stringify(u)); if(ta) sessionStorage.setItem('_ta',JSON.stringify(ta)); }
 function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_u'),ta=sessionStorage.getItem('_ta'); return t&&u?{token:t,user:JSON.parse(u),tabAccess:ta?JSON.parse(ta):null}:null; }
@@ -1244,17 +1249,18 @@ async function loadPerfData(){
     '<div class="pk-sub">'+totalTxn+' transaksi · '+dates.length+' hari</div></div>'+
   '<div class="perf-kpi"><div class="pk-label">Rata-rata / hari</div><div class="pk-val">'+fmtRp(avg)+'</div></div>'+
   '<div class="perf-kpi'+(wstAll.length>0?' dark':'')+'" onclick="openPerfWastage()" style="cursor:pointer">'+
-    '<div class="pk-label">Total Wastage</div><div class="pk-val">'+(isOwner?fmtRp(totalWstNom):String(wstAll.length))+'</div>'+
+    '<div class="pk-label">Total Wastage</div><div class="pk-val">'+(isOwner?fmtRp2(totalWstNom):String(wstAll.length))+'</div>'+
     '<div class="pk-sub">'+wstAll.length+' entri</div><div class="clickable-hint">↗ klik detail</div></div>'+
   '</div>'+
   (failed?'<div style="font-size:12px;color:#b45309;margin:6px 0">⚠️ '+failed+' hari gagal dimuat</div>':'')+
   // Rincian harian
   '<div class="sec">📅 Rincian Harian</div>'+
-  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">'+(isOwner?'Wastage (Rp)':'Wastage')+'</th></tr></thead><tbody>'+
+  '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">Rata/Trx</th><th style="text-align:right">'+(isOwner?'Wastage (Rp)':'Wastage')+'</th></tr></thead><tbody>'+
   (daily.length?daily.map(function(d){
-    var wcell=isOwner?(d.wst?fmtRp(d.wstNom||0):'Rp 0'):String(d.wst);
-    return '<tr><td>'+d.date+'</td><td style="text-align:right">'+fmtRp(d.sales)+'</td><td style="text-align:right">'+d.txn+'</td><td style="text-align:right">'+wcell+'</td></tr>';
-  }).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--brown-soft)">Tidak ada data</td></tr>')+
+    var wcell=isOwner?(d.wst?fmtRp2(d.wstNom||0):fmtRp2(0)):String(d.wst);
+    var avg=(d.txn>0)?fmtRp(Math.round(d.sales/d.txn)):'–';
+    return '<tr><td>'+d.date+'</td><td style="text-align:right">'+fmtRp(d.sales)+'</td><td style="text-align:right">'+d.txn+'</td><td style="text-align:right">'+avg+'</td><td style="text-align:right">'+wcell+'</td></tr>';
+  }).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--brown-soft)">Tidak ada data</td></tr>')+
   '</tbody></table></div>';
 }
 window.loadPerfData=loadPerfData;
@@ -1283,7 +1289,7 @@ function showWastageDetail(wst,isOwner){
     var nomLine='';
     if(isOwner){
       var nom=wastageNominal(r[1],r[3]);
-      if(nom!==null){ total+=nom; anyNominal=true; nomLine='<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:3px">Nominal: '+fmtRp(nom)+'</div>'; }
+      if(nom!==null){ total+=nom; anyNominal=true; nomLine='<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:3px">Nominal: '+fmtRp2(nom)+'</div>'; }
       else nomLine='<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Nominal: – (bahan tak ada/harga belum diisi di ING MASTER)</div>';
     }
     return '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:8px">'+
@@ -1291,7 +1297,7 @@ function showWastageDetail(wst,isOwner){
     '<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Alasan: '+r[5]+' · Oleh: '+r[6]+'</div>'+
     nomLine+'</div>'; }).join('');
   if(isOwner&&anyNominal){
-    html+='<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px;margin-top:4px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(total)+'</span></div>';
+    html+='<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px;margin-top:4px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp2(total)+'</span></div>';
   }
   showPopup('Detail Wastage ('+wst.length+')', html);
 }
@@ -1523,7 +1529,13 @@ window.wstReasonChange=wstReasonChange;
 // Wastage view (AM/Owner)
 async function renderWastageView(c){
   var isOwner=canSeeNominal();
-  c.innerHTML='<div class="perf-date"><select id="wv-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select><input type="date" id="wv-date" value="'+S.today+'"><button class="save-btn" onclick="loadWV()">Tampilkan</button></div><div id="wv-content"></div>';
+  c.innerHTML='<div class="perf-date">'+
+    '<select id="wv-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
+    '<input type="date" id="wv-from" value="'+S.today+'" max="'+S.today+'" title="Dari tanggal">'+
+    '<span style="align-self:center;color:var(--brown-soft);font-size:13px">s/d</span>'+
+    '<input type="date" id="wv-to" value="'+S.today+'" max="'+S.today+'" title="Sampai tanggal">'+
+    '<button class="save-btn" onclick="loadWV()">Tampilkan</button></div>'+
+    '<div id="wv-content"></div>';
   if(S.store){document.getElementById('wv-store').value=S.store;loadWV();}
 }
 // Nominal wastage berbasis HARGA BAHAN BAKU di ING MASTER.
@@ -1546,30 +1558,43 @@ function wastageNominal(itemName,qty){
   return null; // item tak ada di ING MASTER
 }
 async function loadWV(){
-  var store=document.getElementById('wv-store')&&document.getElementById('wv-store').value;
-  var date=document.getElementById('wv-date')&&document.getElementById('wv-date').value;
+  var store=(document.getElementById('wv-store')||{}).value;
+  var from=(document.getElementById('wv-from')||{}).value;
+  var to=(document.getElementById('wv-to')||{}).value;
   if(!store)return;
+  if(from&&to&&from>to){ var tmp=from;from=to;to=tmp; var f=document.getElementById('wv-from'),t=document.getElementById('wv-to'); if(f)f.value=from; if(t)t.value=to; }
   var el=document.getElementById('wv-content'); if(el) el.innerHTML=LOADING;
-  // pastikan baseData (RECAP) sudah dimuat utk perhitungan nominal
-  if(!S.baseData) await loadBaseData();
-  var sd=await loadStoreData(store,date);
-  var wst=sd?sd.wastageToday||[]:[];
+  if(!S.baseData) await loadBaseData();   // utk hitung nominal (ING MASTER)
   var isOwner=canSeeNominal();
-  var totalNom=0; var adaNomTakLengkap=false;
-  var rowsHtml=wst.map(function(r){
-    var nomHtml='';
-    if(isOwner){
-      var nom=wastageNominal(r[1],r[3]);
-      if(nom!=null){ totalNom+=nom; nomHtml='<div class="wlog-nom" style="color:var(--red);font-weight:700">'+fmtRp(nom)+'</div>'; }
-      else { adaNomTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft);font-size:11px">– (tak ada/harga belum diisi di ING MASTER)</div>'; }
-    }
-    var fu=driveImg(r[7]);
-    var foto=r[7]?'<img src="'+fu+'" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex:none" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+fu+'\\\" style=\\\"max-width:100%\\\">\')">':'';
-    return '<div class="wlog-item"><div class="wlog-dot"></div><div style="flex:1;min-width:0"><div class="wlog-name">'+r[1]+'</div><div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div></div>'+foto+'<div style="text-align:right;flex:none;margin-left:8px"><div style="font-weight:700;font-size:13px;white-space:nowrap">'+r[3]+' '+r[4]+'</div>'+nomHtml+'</div></div>';
-  }).join('');
-  var totalHtml=(isOwner&&wst.length)?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(totalNom)+'</span></div>'+(adaNomTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang belum ada harga/isi pack-nya di ING MASTER.</div>':''):'';
-  document.getElementById('wv-content').innerHTML='<div class="sec">Wastage — '+fmtDateShort(date)+' ('+wst.length+')</div>'+
-  (wst.length?'<div class="wlog">'+rowsHtml+'</div>'+totalHtml:'<div class="empty"><div class="ei">✅</div><div>Tidak ada wastage</div></div>');
+  try{
+    var r=await api({action:'getWastageRange',token:S.token,store:store,from:from,to:to});
+    if(!r.ok){ el.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>'; return; }
+    var wst=r.data||[];
+    var rangeLbl='<b>'+fmtDateShort(from)+'</b>'+(from!==to?' s/d <b>'+fmtDateShort(to)+'</b>':'');
+    if(!wst.length){ el.innerHTML='<div class="sec">Wastage — '+fmtDateShort(from)+(from!==to?' s/d '+fmtDateShort(to):'')+'</div><div class="empty"><div class="ei">✅</div><div>Tidak ada wastage di rentang ini</div></div>'; return; }
+    // kelompokkan per tanggal
+    var groups={}, order=[];
+    wst.forEach(function(row){ var d=row[0]; if(!groups[d]){groups[d]=[];order.push(d);} groups[d].push(row); });
+    var grandNom=0, adaTakLengkap=false, html='';
+    order.forEach(function(d){
+      var items=groups[d], dayNom=0, dayHasNom=false;
+      var itemsHtml=items.map(function(row){
+        var nomHtml='';
+        if(isOwner){
+          var nom=wastageNominal(row[1],row[3]);
+          if(nom!=null){ dayNom+=nom; grandNom+=nom; dayHasNom=true; nomHtml='<div class="wlog-nom" style="color:var(--red);font-weight:700">'+fmtRp2(nom)+'</div>'; }
+          else { adaTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft);font-size:11px">– (tak ada/harga belum diisi di ING MASTER)</div>'; }
+        }
+        var fu=driveImg(row[7]);
+        var foto=row[7]?'<img src="'+fu+'" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex:none" onclick="showImg(\''+fu+'\')">':'';
+        return '<div class="wlog-item"><div class="wlog-dot"></div><div style="flex:1;min-width:0"><div class="wlog-name">'+row[1]+'</div><div class="wlog-meta">'+row[5]+' · Oleh: '+row[6]+'</div></div>'+foto+'<div style="text-align:right;flex:none;margin-left:8px"><div style="font-weight:700;font-size:13px;white-space:nowrap">'+row[3]+' '+row[4]+'</div>'+nomHtml+'</div></div>';
+      }).join('');
+      html+='<div class="sec" style="margin-top:14px">📅 '+fmtDateShort(d)+' ('+items.length+')'+(isOwner&&dayHasNom?' · <span style="color:var(--red)">'+fmtRp2(dayNom)+'</span>':'')+'</div><div class="wlog">'+itemsHtml+'</div>';
+    });
+    var head='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:4px">Rentang '+rangeLbl+' · '+wst.length+' entri · '+order.length+' hari</div>';
+    var totalHtml=isOwner?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:12px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp2(grandNom)+'</span></div>'+(adaTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang belum ada harga/isi pack-nya di ING MASTER.</div>':''):'';
+    el.innerHTML=head+html+totalHtml;
+  }catch(e){ el.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
 }
 window.loadWV=loadWV;
 
