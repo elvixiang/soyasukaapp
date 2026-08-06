@@ -3192,9 +3192,12 @@ function estimatePO(po){
   return {total:total,missing:missing,useSent:e.useSent};
 }
 window.estimatePO=estimatePO;
+function openEstimasi(i){ showEstimasi(PO_LIST[i]); } window.openEstimasi=openEstimasi;
+function ohEstimasi(i){ showEstimasi(OH_LIST[i]); } window.ohEstimasi=ohEstimasi;
+window.showEstimasi=showEstimasi;
 
-function openEstimasi(i){
-  var po=PO_LIST[i]; if(!po) return;
+function showEstimasi(po){
+  if(!po) return;
   var e=estRows(po);
   var total=0,missing=[];
   var body=e.rows.map(function(r){
@@ -3604,6 +3607,7 @@ window.loadManualInbound=loadManualInbound;
 // RIWAYAT ORDER (toko) — status PO yg mereka ajukan
 // =========================================================
 var OH_LIST=[];
+var OH_MONTH='';
 async function renderOrderHistory(c){
   if(!ensureStore(c)) return;
   c.innerHTML=LOADING;
@@ -3614,35 +3618,57 @@ async function renderOrderHistory(c){
     if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
     OH_LIST=r.data||[];
     if(!OH_LIST.length){c.innerHTML='<div class="empty"><div class="ei">📭</div><div>Belum pernah mengajukan order</div></div>';return;}
-
-    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">Status order yang kamu ajukan. Kalau sudah <b>Diproses</b>, klik <b>Lihat</b> untuk cek jumlah yang benar-benar dikirim — kadang berbeda dari yang dipesan.</div>'+
-      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:720px">'+
-      '<thead><tr><th>Order ID</th><th>Tanggal</th><th style="text-align:center">Item</th><th>Status</th><th>No. DO</th><th>Detail</th></tr></thead>'+
-      '<tbody>'+OH_LIST.map(function(po,i){
-        var st=po.status||'Baru';
-        var badge=st==='Selesai'?'<span class="tag green">Selesai</span>'
-                 :st==='Diproses'?'<span class="tag blue">Diproses</span>'
-                 :'<span class="tag gold">Menunggu</span>';
-        // Tandai kalau ada qty yg direvisi admin — ini info yg selama ini tidak pernah sampai ke toko.
-        var revised=0;
-        if(po.sentItems&&po.sentItems.length){
-          po.sentItems.forEach(function(it){ if(Number(it.sent)!==Number(it.qty)) revised++; });
-        }
-        return '<tr>'+
-          '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
-          '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
-          '<td style="text-align:center">'+(po.items.length+((po.manualItems&&po.manualItems.length)||0))+'</td>'+
-          '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
-          '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
-          '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'+
-            '<button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button>'+
-            (st==='Diproses'?'<button class="ftab" style="padding:5px 12px;background:var(--green);border-color:var(--green);color:#fff" onclick="openInbound('+i+')">📥 Inbound</button>':'')+
-          '</div></td>'+
-        '</tr>';
-      }).join('')+'</tbody></table></div>';
+    var showNom=(['Owner','Admin'].indexOf(S.user.role)>=0);
+    if(showNom && !S.baseData) await loadBaseData();   // butuh ING MASTER utk nominal
+    // default bulan = bulan PO terbaru (biar langsung ada isinya)
+    var mset={}; OH_LIST.forEach(function(po){ var m=String(po.date||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(m)) mset[m]=1; });
+    var mkeys=Object.keys(mset).sort().reverse();
+    OH_MONTH = mkeys.length?mkeys[0]:S.today.slice(0,7);
+    c.innerHTML='<div class="perf-date" style="margin-bottom:12px"><label style="align-self:center;font-size:13px;color:var(--brown-soft)">Bulan</label>'+
+        '<input type="month" id="oh-month" value="'+OH_MONTH+'" onchange="ohRender()"></div>'+
+      '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">Status order. Kalau sudah <b>Diproses</b>, klik <b>Lihat</b> untuk cek jumlah yang benar-benar dikirim — kadang berbeda dari yang dipesan.'+(showNom?' Kolom <b>Nominal</b> = estimasi harga dari ING MASTER.':'')+'</div>'+
+      '<div id="oh-body"></div>';
+    ohRender();
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.renderOrderHistory=renderOrderHistory;
+
+function ohRender(){
+  var month=(document.getElementById('oh-month')||{}).value||OH_MONTH; OH_MONTH=month;
+  var showNom=(['Owner','Admin'].indexOf(S.user.role)>=0);
+  var body=document.getElementById('oh-body'); if(!body) return;
+  var list=OH_LIST.filter(function(po){ return String(po.date||'').slice(0,7)===month; });
+  if(!list.length){ body.innerHTML='<div class="empty" style="padding:22px"><div class="ei">📭</div><div>Tidak ada order di bulan ini</div></div>'; return; }
+  var totNom=0, anyMissing=false;
+  var rowsHtml=list.map(function(po){
+    var i=OH_LIST.indexOf(po);
+    var st=po.status||'Baru';
+    var badge=st==='Selesai'?'<span class="tag green">Selesai</span>'
+             :st==='Diproses'?'<span class="tag blue">Diproses</span>'
+             :'<span class="tag gold">Menunggu</span>';
+    var revised=0;
+    if(po.sentItems&&po.sentItems.length){ po.sentItems.forEach(function(it){ if(Number(it.sent)!==Number(it.qty)) revised++; }); }
+    var nomCell='';
+    if(showNom){ var est=estimatePO(po); totNom+=est.total; if(est.missing)anyMissing=true;
+      nomCell='<td style="text-align:right;white-space:nowrap"><button class="ftab" style="padding:5px 10px;font-weight:700'+(est.missing?';border-color:var(--orange);color:var(--orange)':'')+'" onclick="ohEstimasi('+i+')">'+rupiah(est.total)+(est.missing?' ⚠':'')+'</button></td>'; }
+    return '<tr>'+
+      '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
+      '<td style="text-align:center">'+(po.items.length+((po.manualItems&&po.manualItems.length)||0))+'</td>'+
+      '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
+      '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
+      '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+        '<button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button>'+
+        (st==='Diproses'?'<button class="ftab" style="padding:5px 12px;background:var(--green);border-color:var(--green);color:#fff" onclick="openInbound('+i+')">📥 Inbound</button>':'')+
+      '</div></td>'+
+      nomCell+
+    '</tr>';
+  }).join('');
+  var head='<thead><tr><th>Order ID</th><th>Tanggal</th><th style="text-align:center">Item</th><th>Status</th><th>No. DO</th><th>Detail</th>'+(showNom?'<th style="text-align:right">Nominal</th>':'')+'</tr></thead>';
+  var totalBar=showNom?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Estimasi ('+list.length+' PO)</span><span>'+rupiah(totNom)+(anyMissing?' ⚠':'')+'</span></div>'+(anyMissing?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Ada item yang harganya belum diisi di ING MASTER (⚠) — total belum lengkap.</div>':''):'';
+  body.innerHTML='<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:'+(showNom?'860':'720')+'px">'+head+'<tbody>'+rowsHtml+'</tbody></table></div>'+totalBar;
+}
+window.ohRender=ohRender;
 
 function openOrderDetail(i){
   var po=OH_LIST[i]; if(!po) return;
