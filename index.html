@@ -1284,7 +1284,7 @@ function showWastageDetail(wst,isOwner){
     if(isOwner){
       var nom=wastageNominal(r[1],r[3]);
       if(nom!==null){ total+=nom; anyNominal=true; nomLine='<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:3px">Nominal: '+fmtRp(nom)+'</div>'; }
-      else nomLine='<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Nominal: – (produk tak ada di RECAP)</div>';
+      else nomLine='<div style="font-size:12px;color:var(--brown-soft);margin-top:3px">Nominal: – (bahan tak ada/harga belum diisi di ING MASTER)</div>';
     }
     return '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:8px">'+
     '<div style="font-weight:700;color:var(--brown-deep)">'+r[1]+' — '+r[3]+' '+r[4]+'</div>'+
@@ -1526,21 +1526,24 @@ async function renderWastageView(c){
   c.innerHTML='<div class="perf-date"><select id="wv-store"><option value="">— Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select><input type="date" id="wv-date" value="'+S.today+'"><button class="save-btn" onclick="loadWV()">Tampilkan</button></div><div id="wv-content"></div>';
   if(S.store){document.getElementById('wv-store').value=S.store;loadWV();}
 }
-// Cari data RECAP utk item wastage. RECAP: kol C(idx2)=nama produk, D(idx3)=yield, F(idx5)=cost.
-// Nominal proporsional = (qty_dilaporkan / yield) * cost.
+// Nominal wastage berbasis HARGA BAHAN BAKU di ING MASTER.
+// ING MASTER: A(idx0)=nama, C(idx2)=isi per pack, D(idx3)=unit, E(idx4)=harga per pack.
+// harga per satuan dasar = harga_pack / isi_pack ; nominal = qty × harga_per_satuan_dasar.
+function _numID(v){ if(v===''||v===null||v===undefined) return null; var n=Number(String(v).replace(/[^0-9.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.')); return isNaN(n)?null:n; }
 function wastageNominal(itemName,qty){
-  var bd=S.baseData; var recap=(bd&&bd.recap)||[];
+  var bd=S.baseData; var rows=(bd&&bd.ingMaster)||[];
   var q=Number(qty)||0;
-  for(var i=1;i<recap.length;i++){
-    var r=recap[i];
-    if(r&&r[2]&&String(r[2]).trim().toLowerCase()===String(itemName).trim().toLowerCase()){
-      var yield_=Number(r[3])||0;
-      var cost=Number(r[5])||0;
-      if(yield_>0) return (q/yield_)*cost;
-      return null; // yield tak valid → tak bisa hitung
-    }
+  var key=String(itemName||'').trim().toLowerCase();
+  for(var i=1;i<rows.length;i++){
+    var r=rows[i]; if(!r||!r[0]) continue;
+    if(String(r[0]).trim().toLowerCase()!==key) continue;
+    var price=_numID(r[4]);                 // harga per pack
+    var isi=_numID(r[2]);                    // isi per pack (satuan dasar)
+    if(price===null) return null;            // harga belum diisi di ING MASTER
+    if(isi&&isi>0) return q*(price/isi);     // → per satuan dasar
+    return null;                             // isi/pack belum ada → tak bisa konversi
   }
-  return null; // item tak ditemukan di RECAP
+  return null; // item tak ada di ING MASTER
 }
 async function loadWV(){
   var store=document.getElementById('wv-store')&&document.getElementById('wv-store').value;
@@ -1558,13 +1561,13 @@ async function loadWV(){
     if(isOwner){
       var nom=wastageNominal(r[1],r[3]);
       if(nom!=null){ totalNom+=nom; nomHtml='<div class="wlog-nom" style="color:var(--red);font-weight:700">'+fmtRp(nom)+'</div>'; }
-      else { adaNomTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft);font-size:11px">– (tak ada di RECAP)</div>'; }
+      else { adaNomTakLengkap=true; nomHtml='<div class="wlog-nom" style="color:var(--brown-soft);font-size:11px">– (tak ada/harga belum diisi di ING MASTER)</div>'; }
     }
     var fu=driveImg(r[7]);
     var foto=r[7]?'<img src="'+fu+'" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex:none" onclick="showPopup(\'Foto Wastage\',\'<img src=\\\"'+fu+'\\\" style=\\\"max-width:100%\\\">\')">':'';
     return '<div class="wlog-item"><div class="wlog-dot"></div><div style="flex:1;min-width:0"><div class="wlog-name">'+r[1]+'</div><div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div></div>'+foto+'<div style="text-align:right;flex:none;margin-left:8px"><div style="font-weight:700;font-size:13px;white-space:nowrap">'+r[3]+' '+r[4]+'</div>'+nomHtml+'</div></div>';
   }).join('');
-  var totalHtml=(isOwner&&wst.length)?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(totalNom)+'</span></div>'+(adaNomTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang tidak ditemukan di RECAP.</div>':''):'';
+  var totalHtml=(isOwner&&wst.length)?'<div style="background:var(--brown-deep);color:#fff;border-radius:12px;padding:12px 14px;margin-top:10px;display:flex;justify-content:space-between;font-weight:700"><span>Total Nominal Wastage</span><span>'+fmtRp(totalNom)+'</span></div>'+(adaNomTakLengkap?'<div style="font-size:11.5px;color:var(--brown-soft);margin-top:6px">*Total belum termasuk item yang belum ada harga/isi pack-nya di ING MASTER.</div>':''):'';
   document.getElementById('wv-content').innerHTML='<div class="sec">Wastage — '+fmtDateShort(date)+' ('+wst.length+')</div>'+
   (wst.length?'<div class="wlog">'+rowsHtml+'</div>'+totalHtml:'<div class="empty"><div class="ei">✅</div><div>Tidak ada wastage</div></div>');
 }
