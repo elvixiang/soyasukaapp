@@ -812,7 +812,7 @@ async function loadStoreData(store,date,force){
   if(_sdFlight[key]) return _sdFlight[key];           // sedang jalan → tumpang saja
   _sdFlight[key]=(async function(){
     try{
-      var r=await api({action:'getStoreData',token:S.token,store:store,date:date||S.today});
+      var r=await api({action:'getStoreData',token:S.token,store:store,date:date||S.today,fresh:force?1:''});
       if(r&&r.ok){ _sdCache[key]={t:Date.now(),data:r}; S.storeData=r; return r; }
       return null;
     }catch(e){ console.warn(e); return null; }
@@ -1916,6 +1916,27 @@ function renderApprSection(){
 function apprShowReject(prefix){ var d=document.getElementById(prefix+'-reject'); if(d){ d.style.display='block'; var inp=document.getElementById(prefix+'-reason'); if(inp)inp.focus(); } }
 window.apprShowReject=apprShowReject;
 
+// Update badge lonceng dari NOTIF.count (tanpa request server).
+function renderNotifBadge(){
+  var b=document.getElementById('bell-badge'); if(!b) return;
+  if(NOTIF.count>0){ b.textContent=NOTIF.count>99?'99+':NOTIF.count; b.style.display='flex'; }
+  else b.style.display='none';
+}
+window.renderNotifBadge=renderNotifBadge;
+
+// Setelah acc/tolak: buang item dari memori & re-render — TANPA fetch ulang lintas toko (biar cepat).
+function apprRemove(kind,i){
+  if(APPR[kind]&&i>=0&&i<APPR[kind].length) APPR[kind].splice(i,1);
+  var total=(APPR.izin||[]).length+(APPR.overtime||[]).length+(APPR.clockfix||[]).length;
+  // sinkronkan lonceng AM secara lokal (AM = notif pending approval)
+  if(S.user.role==='AM'){ NOTIF.izin=APPR.izin; NOTIF.overtime=APPR.overtime; NOTIF.clockfix=APPR.clockfix; NOTIF.count=total; renderNotifBadge(); }
+  var c=document.getElementById('content');
+  if(!total){ if(c) c.innerHTML='<div class="empty"><div class="ei">✅</div><div>Tidak ada pengajuan yang menunggu persetujuan</div></div>'; return; }
+  if(!APPR[APPR_TAB]||!APPR[APPR_TAB].length){ APPR_TAB=APPR.izin.length?'izin':APPR.overtime.length?'overtime':'clockfix'; }
+  renderApprPills(); renderApprSection();
+}
+window.apprRemove=apprRemove;
+
 function openIzinCheck(i){
   var z=IZP_LIST[i]; if(!z) return;
   showPopup('📝 Izin — '+z.display_name,
@@ -1959,7 +1980,7 @@ async function decideIzin(i,decision){
     var r=await api({action:'decideIzin',token:S.token,store:z.store,date:z.date,username:z.username,decision:decision,reason:reason});
     if(r&&r.ok){
       if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui':'✅ Ditolak — staff akan diberi tahu';msg.className='save-msg ok';}
-      setTimeout(function(){ closePopup(); navigateTo('izin-approval'); },800);
+      setTimeout(function(){ closePopup(); apprRemove('izin', i); },600);
     } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
 }
@@ -2000,7 +2021,7 @@ async function decideOvertime(i,decision){
     var r=await api({action:'decideOvertime',token:S.token,store:z.store,date:z.date,username:z.username,decision:decision,reason:reason});
     if(r&&r.ok){
       if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui — jam masuk rekap':'✅ Ditolak — staff diberi tahu';msg.className='save-msg ok';}
-      setTimeout(function(){ closePopup(); refreshNotif(); navigateTo('izin-approval'); },800);
+      setTimeout(function(){ closePopup(); apprRemove('overtime', i); },600);
     } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
 }
@@ -2042,7 +2063,7 @@ async function decideClockfix(i,decision){
     var r=await api({action:'decideClockfix',token:S.token,store:z.store,date:z.date,username:z.username,clock_type:z.clock_type,decision:decision,reason:reason});
     if(r&&r.ok){
       if(msg){msg.textContent=decision==='Approved'?'✅ Disetujui — absen diperbarui':'✅ Ditolak — staff diberi tahu';msg.className='save-msg ok';}
-      setTimeout(function(){ closePopup(); refreshNotif(); navigateTo('izin-approval'); },800);
+      setTimeout(function(){ closePopup(); apprRemove('clockfix', i); },600);
     } else if(msg){msg.textContent='❌ '+((r&&r.error)||'Gagal');msg.className='save-msg err';}
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
 }
@@ -3306,7 +3327,7 @@ async function doProcess(i){
   try{
     var r=await api({action:'processPO',token:S.token,order_id:po.order_id,sent_items:JSON.stringify(sent)});
     if(r.ok){
-      if(msg){msg.textContent='✅ Diproses! Nomor DO: '+r.do_id;msg.className='save-msg ok';}
+      if(msg){msg.textContent='✅ '+(r.status==='Selesai'?'Selesai (barang non-inbound)':'Diproses')+'! Nomor DO: '+r.do_id;msg.className='save-msg ok';}
       setTimeout(function(){ closePopup(); refreshNotif(); navigateTo('incoming-po'); },1000);
     } else if(msg){ msg.textContent='❌ '+(r.error||'Error');msg.className='save-msg err'; }
   }catch(e){ if(msg){msg.textContent='❌ '+e.message;msg.className='save-msg err';} }
