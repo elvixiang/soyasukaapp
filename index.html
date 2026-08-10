@@ -249,6 +249,13 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .izin-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:999px;white-space:nowrap}
 .izin-badge.sakit{background:#EAF1F8;color:var(--blue)}
 .izin-badge.unpaid{background:#FDF1E7;color:var(--orange)}
+.survey-overlay{position:fixed;inset:0;background:rgba(62,52,42,.72);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px}
+.survey-card{background:var(--surface);border-radius:20px;padding:24px;max-width:460px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.survey-badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;background:var(--gold);color:#fff;padding:3px 10px;border-radius:999px;margin-bottom:10px}
+.svm-opts{display:flex;flex-direction:column;gap:8px}
+.svm-opt{display:flex;align-items:center;gap:10px;padding:11px 14px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;font-size:14px;transition:border-color .12s,background .12s}
+.svm-opt:hover{border-color:var(--amber-bean,#B97B51);background:var(--surface2)}
+.svm-opt input{width:17px;height:17px;flex:none;accent-color:var(--amber-bean,#B97B51)}
 .rk-card{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
 .rk-num{font-size:22px;font-weight:800;color:var(--brown-deep);line-height:1.2}
 .rk-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin-top:2px}
@@ -425,7 +432,7 @@ function saveS(t,u,ta){ sessionStorage.setItem('_t',t); sessionStorage.setItem('
 function loadS(){ var t=sessionStorage.getItem('_t'),u=sessionStorage.getItem('_u'),ta=sessionStorage.getItem('_ta'); return t&&u?{token:t,user:JSON.parse(u),tabAccess:ta?JSON.parse(ta):null}:null; }
 function clearS(){ sessionStorage.clear(); }
 
-var WRITE_ACTIONS={saveReport:1,saveChecklist:1,saveWastage:1,saveSO:1,saveAbsensi:1,savePO:1,processPO:1,saveProfilePhoto:1,saveLaporan:1,markPORead:1,saveOvertime:1,saveClockfix:1,decideOvertime:1,decideClockfix:1,markOvertimeSeen:1,markClockfixSeen:1};
+var WRITE_ACTIONS={saveReport:1,saveChecklist:1,saveWastage:1,saveSO:1,saveAbsensi:1,savePO:1,processPO:1,saveProfilePhoto:1,saveLaporan:1,markPORead:1,saveOvertime:1,saveClockfix:1,decideOvertime:1,decideClockfix:1,markOvertimeSeen:1,markClockfixSeen:1,createSurvey:1,submitSurvey:1,closeSurvey:1};
 async function api(p){
   // Jika ada payload besar (foto base64), kirim via POST supaya tidak kena
   // batas panjang URL (HTTP 414). Selain itu pakai GET biasa.
@@ -507,7 +514,7 @@ function startApp(fresh){
   document.getElementById('tb-date').textContent=fmtDate(S.today);
   updateProfileAvatar(u.photo_url);
   buildNav(); navigateTo('dashboard'); loadBaseData();
-  refreshNotif().then(function(){ if(fresh) greetNotif(); });
+  refreshNotif().then(function(){ checkSurvey().then(function(had){ if(!had && fresh) greetNotif(); }); });
 }
 
 // Popup sambutan Pofu — cuma muncul kalau memang ada notif.
@@ -720,6 +727,7 @@ var NAV_DEFS = {
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
     {id:'forecasting',ico:'🧮',lbl:'Kalkulator Prep',sec:''},
     {id:'laporan-view',ico:'📮',lbl:'Laporan Masuk',sec:'Lainnya'},
+    {id:'survey',ico:'📣',lbl:'Survey',sec:''},
   ],
   Admin:[
     {id:'dashboard',ico:'🏠',lbl:'Dashboard',sec:''},
@@ -765,7 +773,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -850,6 +858,7 @@ async function renderPage(id){
     case 'variance': await renderVariance(c); break;
     case 'laporan': renderLaporan(c); break;
     case 'laporan-view': renderLaporanView(c); break;
+    case 'survey': renderSurvey(c); break;
     default: c.innerHTML='<div class="empty"><div class="ei">🔧</div><div>Halaman belum tersedia</div></div>';
   }
 }
@@ -2994,6 +3003,178 @@ async function renderLaporanView(c){
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.renderLaporanView=renderLaporanView;
+
+// ================= SURVEY (Owner) =================
+var _svUsers=[], _svOptSeq=0;
+async function renderSurvey(c){
+  c.innerHTML=LOADING;
+  try{ var ur=await api({action:'getUsersList',token:S.token}); _svUsers=(ur&&ur.data)||[]; }catch(e){ _svUsers=[]; }
+  c.innerHTML=
+    '<div class="card"><div class="card-title">📣 Buat Survey Baru</div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Survey muncul sebagai <b>pop-up wajib</b> tiap penerima login, sampai mereka menjawab.</div>'+
+    '<div class="form-grid">'+
+      '<div class="fg full"><label>Judul (opsional)</label><input class="fi2" id="sv-title" maxlength="80" placeholder="mis. Feedback Shift"></div>'+
+      '<div class="fg full"><label>Pertanyaan</label><input class="fi2" id="sv-q" maxlength="200" placeholder="Pertanyaan yang mau ditanyakan"></div>'+
+      '<div class="fg"><label>Tipe Jawaban</label><select class="fi2" id="sv-type" onchange="svTypeChange()"><option value="single">Pilih 1</option><option value="multi">Pilih banyak</option><option value="text">Isian teks</option></select></div>'+
+    '</div>'+
+    '<div id="sv-opts-wrap" style="margin-top:10px"><label style="font-size:12px;font-weight:700;color:var(--brown-deep)">Opsi Jawaban</label><div id="sv-opts"></div><button class="ftab" style="margin-top:8px;padding:6px 12px" onclick="svAddOpt()">+ Tambah Opsi</button></div>'+
+    '<div style="margin-top:14px"><label style="font-size:12px;font-weight:700;color:var(--brown-deep)">Penerima</label>'+
+      '<label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px"><input type="checkbox" id="sv-all" onchange="svAllChange()"> <b>Semua orang</b></label>'+
+      '<div id="sv-rec-detail">'+
+        '<div style="font-size:11.5px;color:var(--brown-soft);margin:6px 0 4px">Per role:</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:12px">'+['Staff','AM','Admin','HR'].map(function(r){return '<label style="display:flex;align-items:center;gap:5px;font-size:12.5px"><input type="checkbox" class="sv-role" value="'+r+'"> '+r+'</label>';}).join('')+'</div>'+
+        '<div style="font-size:11.5px;color:var(--brown-soft);margin:10px 0 4px">Atau pilih orang tertentu:</div>'+
+        '<div style="max-height:180px;overflow-y:auto;border:1.5px solid var(--line);border-radius:10px;padding:8px">'+
+          (_svUsers.length?_svUsers.map(function(u){return '<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12.5px"><input type="checkbox" class="sv-user" value="'+esc(u.username)+'"> '+esc(u.display_name)+' <span style="color:var(--brown-soft);font-size:11px">· '+esc(u.role)+(u.store?' · '+esc(String(u.store).replace('SOYASUKA_','')):'')+'</span></label>';}).join(''):'<div style="font-size:12px;color:var(--brown-soft)">Tidak ada user</div>')+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    '<button class="save-btn" style="width:100%;margin-top:14px" onclick="submitCreateSurvey()">📣 Kirim Survey</button>'+
+    '<div id="sv-msg" class="save-msg"></div></div>'+
+    '<div class="sec" style="margin-top:6px">Daftar Survey</div>'+
+    '<div id="sv-list">'+LOADING+'</div>';
+  svAddOpt(); svAddOpt(); svTypeChange();
+  loadSurveyList();
+}
+window.renderSurvey=renderSurvey;
+
+function svAddOpt(){
+  var box=document.getElementById('sv-opts'); if(!box) return;
+  var id='svopt_'+(_svOptSeq++);
+  var row=document.createElement('div'); row.style.cssText='display:flex;gap:8px;margin-bottom:6px'; row.id=id;
+  row.innerHTML='<input class="fi2" style="flex:1" maxlength="80" placeholder="Opsi jawaban"><button class="ftab" style="padding:6px 10px" onclick="document.getElementById(\''+id+'\').remove()">✕</button>';
+  box.appendChild(row);
+}
+window.svAddOpt=svAddOpt;
+function svTypeChange(){ var t=(document.getElementById('sv-type')||{}).value; var w=document.getElementById('sv-opts-wrap'); if(w) w.style.display=(t==='text')?'none':'block'; }
+window.svTypeChange=svTypeChange;
+function svAllChange(){ var all=(document.getElementById('sv-all')||{}).checked; var d=document.getElementById('sv-rec-detail'); if(d) d.style.opacity=all?'0.4':'1'; document.querySelectorAll('.sv-role,.sv-user').forEach(function(el){ el.disabled=all; }); }
+window.svAllChange=svAllChange;
+
+async function submitCreateSurvey(){
+  var title=(document.getElementById('sv-title')||{}).value||'';
+  var q=((document.getElementById('sv-q')||{}).value||'').trim();
+  var type=(document.getElementById('sv-type')||{}).value||'single';
+  var msg=document.getElementById('sv-msg');
+  function err(m){ if(msg){msg.textContent='❌ '+m;msg.className='save-msg err';} }
+  if(!q) return err('Pertanyaan wajib diisi');
+  var opts=[];
+  if(type!=='text'){ document.querySelectorAll('#sv-opts input').forEach(function(i){ var v=i.value.trim(); if(v)opts.push(v); }); if(opts.length<2) return err('Minimal 2 opsi jawaban'); }
+  var all=(document.getElementById('sv-all')||{}).checked, roles=[], users=[];
+  if(!all){ document.querySelectorAll('.sv-role:checked').forEach(function(i){ roles.push(i.value); }); document.querySelectorAll('.sv-user:checked').forEach(function(i){ users.push(i.value); }); if(!roles.length && !users.length) return err('Pilih minimal 1 penerima (atau centang Semua)'); }
+  var btn=document.querySelector('[onclick="submitCreateSurvey()"]'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'createSurvey',token:S.token,title:title,question:q,type:type,options_json:JSON.stringify(opts),recipients_json:JSON.stringify({all:all,roles:roles,users:users})});
+    if(r&&r.ok){ if(msg){msg.textContent='✅ Survey terkirim!';msg.className='save-msg ok';}
+      document.getElementById('sv-q').value=''; document.getElementById('sv-title').value='';
+      document.getElementById('sv-opts').innerHTML=''; svAddOpt(); svAddOpt();
+      document.getElementById('sv-all').checked=false; svAllChange();
+      document.querySelectorAll('.sv-role:checked,.sv-user:checked').forEach(function(i){i.checked=false;});
+      loadSurveyList();
+    } else err((r&&r.error)||'Gagal');
+  }catch(e){ err(e.message); }
+  if(btn){btn.disabled=false;btn.textContent='📣 Kirim Survey';}
+}
+window.submitCreateSurvey=submitCreateSurvey;
+
+async function loadSurveyList(){
+  var box=document.getElementById('sv-list'); if(!box) return;
+  try{
+    var r=await api({action:'getSurveys',token:S.token}); var list=(r&&r.data)||[];
+    if(!list.length){ box.innerHTML='<div class="empty" style="padding:20px"><div class="ei">📭</div><div>Belum ada survey</div></div>'; return; }
+    box.innerHTML=list.map(function(s){
+      var typeLbl=s.type==='single'?'Pilih 1':s.type==='multi'?'Pilih banyak':'Isian teks';
+      return '<div class="card" style="margin-bottom:10px">'+
+        '<div style="font-weight:700">'+(s.title?esc(s.title)+' · ':'')+'<span style="font-weight:600;color:var(--brown-soft);font-size:13px">'+typeLbl+'</span></div>'+
+        '<div style="font-size:13.5px;margin-top:3px">'+esc(s.question)+'</div>'+
+        '<div style="font-size:12px;color:var(--brown-soft);margin-top:4px">'+s.answered+' / '+s.total+' menjawab · '+(s.active?'<span style="color:var(--green);font-weight:700">Aktif</span>':'<span style="color:var(--brown-soft)">Ditutup</span>')+'</div>'+
+        '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+
+          '<button class="ftab" style="padding:6px 14px" onclick="openSurveyResults(\''+s.survey_id+'\')">📊 Hasil</button>'+
+          (s.active?'<button class="ftab" style="padding:6px 14px;border-color:var(--red);color:var(--red)" onclick="doCloseSurvey(\''+s.survey_id+'\')">Tutup</button>':'')+
+        '</div></div>';
+    }).join('');
+  }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
+}
+window.loadSurveyList=loadSurveyList;
+
+async function doCloseSurvey(id){
+  if(!confirm('Tutup survey ini? Setelah ditutup tidak muncul lagi ke user.')) return;
+  try{ var r=await api({action:'closeSurvey',token:S.token,survey_id:id}); if(r&&r.ok) loadSurveyList(); else alert((r&&r.error)||'Gagal'); }catch(e){ alert(e.message); }
+}
+window.doCloseSurvey=doCloseSurvey;
+
+async function openSurveyResults(id){
+  var r;
+  try{ r=await api({action:'getSurveyResults',token:S.token,survey_id:id}); }catch(e){ alert(e.message); return; }
+  if(!r||!r.ok){ alert((r&&r.error)||'Gagal'); return; }
+  var sv=r.survey, totalAns=r.answers.length, body='';
+  body+='<div style="font-weight:700;margin-bottom:2px">'+esc(sv.question)+'</div>';
+  body+='<div style="font-size:12px;color:var(--brown-soft);margin-bottom:12px">'+totalAns+' menjawab · '+r.pending.length+' belum</div>';
+  if(sv.type==='text'){
+    body+=r.answers.length?r.answers.map(function(a){return '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px"><div style="font-size:13px">'+esc(String(a.answer))+'</div><div style="font-size:11px;color:var(--brown-soft);margin-top:2px">— '+esc(a.display_name)+'</div></div>';}).join(''):'<div style="color:var(--brown-soft);font-size:13px">Belum ada jawaban</div>';
+  } else {
+    var maxC=1; sv.options.forEach(function(o){ if((r.counts[o]||0)>maxC) maxC=r.counts[o]; });
+    body+=sv.options.map(function(o){ var cnt=r.counts[o]||0, pct=totalAns?Math.round(cnt/totalAns*100):0;
+      return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>'+esc(o)+'</span><span style="font-weight:700">'+cnt+' ('+pct+'%)</span></div><div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden"><div style="width:'+(cnt/maxC*100)+'%;height:100%;background:var(--amber-bean,#B97B51)"></div></div></div>';
+    }).join('');
+    body+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin:14px 0 6px">Detail Jawaban</div>';
+    body+=r.answers.length?r.answers.map(function(a){ var av=Array.isArray(a.answer)?a.answer.join(', '):a.answer; return '<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line)">'+esc(a.display_name)+': <b>'+esc(String(av))+'</b></div>';}).join(''):'';
+  }
+  if(r.pending.length){ body+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--brown-soft);margin:14px 0 6px">Belum Menjawab ('+r.pending.length+')</div><div style="font-size:12.5px;color:var(--brown-soft)">'+r.pending.map(esc).join(', ')+'</div>'; }
+  showPopup('📊 Hasil Survey', body, true);
+}
+window.openSurveyResults=openSurveyResults;
+
+// ── Survey WAJIB untuk user (blocking modal saat login) ──
+var _svQueue=[], _svIdx=0, _svOnDone=null;
+function checkSurvey(){
+  return new Promise(function(resolve){
+    api({action:'getMySurveys',token:S.token}).then(function(r){
+      var list=(r&&r.data)||[];
+      if(!list.length){ resolve(false); return; }
+      _svQueue=list; _svIdx=0; _svOnDone=function(){ resolve(true); };
+      showSurveyModal();
+    }).catch(function(){ resolve(false); });
+  });
+}
+window.checkSurvey=checkSurvey;
+
+function showSurveyModal(){
+  var s=_svQueue[_svIdx];
+  if(!s){ closeSurveyModal(); if(_svOnDone)_svOnDone(); return; }
+  var ov=document.getElementById('survey-overlay');
+  if(!ov){ ov=document.createElement('div'); ov.id='survey-overlay'; ov.className='survey-overlay'; document.body.appendChild(ov); }
+  var ansHtml;
+  if(s.type==='text'){ ansHtml='<textarea id="svm-text" class="fi2" style="width:100%;min-height:84px" maxlength="500" placeholder="Tulis jawabanmu…"></textarea>'; }
+  else { var it=s.type==='multi'?'checkbox':'radio'; ansHtml=(s.options||[]).map(function(o){ return '<label class="svm-opt"><input type="'+it+'" name="svm-ans" value="'+esc(o)+'"> <span>'+esc(o)+'</span></label>'; }).join(''); }
+  ov.innerHTML='<div class="survey-card">'+
+    '<div class="survey-badge">📣 Survey'+(_svQueue.length>1?' ('+(_svIdx+1)+'/'+_svQueue.length+')':'')+'</div>'+
+    (s.title?'<div style="font-weight:800;font-size:16px;margin-bottom:2px">'+esc(s.title)+'</div>':'')+
+    '<div style="font-size:15px;font-weight:600;margin-bottom:12px;line-height:1.4">'+esc(s.question)+'</div>'+
+    (s.type==='multi'?'<div style="font-size:11.5px;color:var(--brown-soft);margin-bottom:8px">Bisa pilih lebih dari satu</div>':'')+
+    '<div class="svm-opts">'+ansHtml+'</div>'+
+    '<button class="save-btn" style="width:100%;margin-top:16px" onclick="submitSurveyAnswer()">Kirim Jawaban</button>'+
+    '<div id="svm-msg" class="save-msg" style="text-align:center"></div></div>';
+}
+window.showSurveyModal=showSurveyModal;
+function closeSurveyModal(){ var ov=document.getElementById('survey-overlay'); if(ov) ov.remove(); }
+
+async function submitSurveyAnswer(){
+  var s=_svQueue[_svIdx]; if(!s) return;
+  var msg=document.getElementById('svm-msg');
+  function err(m){ if(msg){msg.textContent='❌ '+m;msg.className='save-msg err';} }
+  var ans;
+  if(s.type==='text'){ ans=((document.getElementById('svm-text')||{}).value||'').trim(); if(!ans) return err('Jawaban wajib diisi'); }
+  else if(s.type==='single'){ var el=document.querySelector('input[name="svm-ans"]:checked'); if(!el) return err('Pilih 1 jawaban dulu'); ans=el.value; }
+  else { ans=[]; document.querySelectorAll('input[name="svm-ans"]:checked').forEach(function(i){ans.push(i.value);}); if(!ans.length) return err('Pilih minimal 1'); }
+  var btn=document.querySelector('[onclick="submitSurveyAnswer()"]'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
+  try{
+    var r=await api({action:'submitSurvey',token:S.token,survey_id:s.survey_id,answer_json:JSON.stringify(ans)});
+    if(r&&r.ok){ _svIdx++; if(_svIdx<_svQueue.length){ showSurveyModal(); } else { closeSurveyModal(); if(_svOnDone)_svOnDone(); } }
+    else { err((r&&r.error)||'Gagal'); if(btn){btn.disabled=false;btn.textContent='Kirim Jawaban';} }
+  }catch(e){ err(e.message); if(btn){btn.disabled=false;btn.textContent='Kirim Jawaban';} }
+}
+window.submitSurveyAnswer=submitSurveyAnswer;
 
 // ========================= ORDER / PURCHASE ORDER =========================
 var ORDER_ITEMS=[];
