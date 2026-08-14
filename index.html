@@ -1550,7 +1550,14 @@ async function renderWastageView(c){
 // Nominal wastage berbasis HARGA BAHAN BAKU di ING MASTER.
 // ING MASTER: A(idx0)=nama, C(idx2)=isi per pack, D(idx3)=unit, E(idx4)=harga per pack.
 // harga per satuan dasar = harga_pack / isi_pack ; nominal = qty × harga_per_satuan_dasar.
-function _numID(v){ if(v===''||v===null||v===undefined) return null; var n=Number(String(v).replace(/[^0-9.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.')); return isNaN(n)?null:n; }
+function _numID(v){
+  if(v===''||v===null||v===undefined) return null;
+  if(typeof v==='number') return isNaN(v)?null:v;           // angka asli dari sheet → pakai apa adanya (jangan rusak desimal)
+  var s=String(v).trim(); if(!s) return null;
+  if(s.indexOf(',')>=0) s=s.replace(/\./g,'').replace(',','.');   // ada koma → koma=desimal, titik=ribuan
+  else s=s.replace(/\.(?=\d{3}(\D|$))/g,'');                       // hanya buang titik pemisah ribuan
+  var n=Number(s.replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n;
+}
 function wastageNominal(itemName,qty){
   var bd=S.baseData; var rows=(bd&&bd.ingMaster)||[];
   var q=Number(qty)||0;
@@ -3008,7 +3015,8 @@ window.renderLaporanView=renderLaporanView;
 var _svUsers=[], _svOptSeq=0;
 async function renderSurvey(c){
   c.innerHTML=LOADING;
-  try{ var ur=await api({action:'getUsersList',token:S.token}); _svUsers=(ur&&ur.data)||[]; }catch(e){ _svUsers=[]; }
+  var _svUserErr='';
+  try{ var ur=await api({action:'getUsersList',token:S.token}); _svUsers=(ur&&ur.ok&&ur.data)||[]; if(ur&&!ur.ok)_svUserErr=ur.error||'gagal memuat user'; }catch(e){ _svUsers=[]; _svUserErr=e.message; }
   c.innerHTML=
     '<div class="card"><div class="card-title">📣 Buat Survey Baru</div>'+
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Survey muncul sebagai <b>pop-up wajib</b> tiap penerima login, sampai mereka menjawab.</div>'+
@@ -3025,7 +3033,7 @@ async function renderSurvey(c){
         '<div style="display:flex;flex-wrap:wrap;gap:12px">'+['Staff','AM','Admin','HR'].map(function(r){return '<label style="display:flex;align-items:center;gap:5px;font-size:12.5px"><input type="checkbox" class="sv-role" value="'+r+'"> '+r+'</label>';}).join('')+'</div>'+
         '<div style="font-size:11.5px;color:var(--brown-soft);margin:10px 0 4px">Atau pilih orang tertentu:</div>'+
         '<div style="max-height:180px;overflow-y:auto;border:1.5px solid var(--line);border-radius:10px;padding:8px">'+
-          (_svUsers.length?_svUsers.map(function(u){return '<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12.5px"><input type="checkbox" class="sv-user" value="'+esc(u.username)+'"> '+esc(u.display_name)+' <span style="color:var(--brown-soft);font-size:11px">· '+esc(u.role)+(u.store?' · '+esc(String(u.store).replace('SOYASUKA_','')):'')+'</span></label>';}).join(''):'<div style="font-size:12px;color:var(--brown-soft)">Tidak ada user</div>')+
+          (_svUsers.length?_svUsers.map(function(u){return '<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12.5px"><input type="checkbox" class="sv-user" value="'+esc(u.username)+'"> '+esc(u.display_name)+' <span style="color:var(--brown-soft);font-size:11px">· '+esc(u.role)+(u.store?' · '+esc(String(u.store).replace('SOYASUKA_','')):'')+'</span></label>';}).join(''):(_svUserErr?'<div style="font-size:12px;color:var(--red)">⚠ '+esc(_svUserErr)+'</div>':'<div style="font-size:12px;color:var(--brown-soft)">Tidak ada user</div>'))+
         '</div>'+
       '</div>'+
     '</div>'+
@@ -3364,7 +3372,7 @@ function ingPrice(name){
       var nm=String(rows[i][0]||'').trim().toLowerCase();
       if(!nm) continue;
       var raw=rows[i][4];
-      var p=(raw===''||raw===null||raw===undefined)?null:Number(String(raw).replace(/[^0-9.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.'));
+      var p=_numID(raw);
       _priceMap[nm]=(p===null||isNaN(p))?null:p;
     }
   }
