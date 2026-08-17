@@ -2930,11 +2930,17 @@ async function psLoadStaff(){
   var sel=document.getElementById('ps-staff'); if(!sel) return;
   sel.innerHTML='<option value="">— Pilih Staff —</option>';
   if(!store) return;
-  if(!_PS_USERS){
-    try{ var r=await api({action:'getUsersList',token:S.token}); _PS_USERS=(r&&r.ok&&r.data)||[]; }catch(e){ _PS_USERS=[]; }
-  }
-  _PS_USERS.filter(function(u){ return u.store===store && u.role!=='Owner'; })
-    .forEach(function(u){ var o=document.createElement('option'); o.value=u.username; o.textContent=u.display_name+' ('+u.role+')'; sel.appendChild(o); });
+  sel.innerHTML='<option value="">Memuat…</option>';
+  try{
+    var r=await api({action:'getPayslipStaff',token:S.token,store:store});
+    sel.innerHTML='<option value="">— Pilih Staff —</option>';
+    if(r&&r.ok){
+      (r.data||[]).forEach(function(u){ var o=document.createElement('option'); o.value=u.username; o.textContent=u.display_name+' ('+u.role+')'; sel.appendChild(o); });
+      if(!(r.data||[]).length){ var o2=document.createElement('option'); o2.value=''; o2.textContent='(tidak ada staff di toko ini)'; sel.appendChild(o2); }
+    } else {
+      sel.innerHTML='<option value="">'+((r&&r.error)||'gagal memuat')+'</option>';
+    }
+  }catch(e){ sel.innerHTML='<option value="">'+e.message+'</option>'; }
 }
 window.psLoadStaff=psLoadStaff;
 
