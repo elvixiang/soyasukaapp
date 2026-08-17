@@ -214,6 +214,27 @@ select.fi2{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 .perf-kpi.dark .pk-sub{color:rgba(255,255,255,.4)}
 .clickable-hint{font-size:10px;color:var(--gold);margin-top:4px}
 
+/* Analisa Lanjutan (Perf Overview) */
+.perf-ana-btn{display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-size:13.5px;font-weight:700;color:#fff;background:var(--brown-deep);border:0;border-radius:12px;padding:11px 18px;cursor:pointer;margin:2px 0 16px;transition:background .18s,transform .12s}
+.perf-ana-btn:hover{background:var(--brown);transform:translateY(-1px)}
+.perf-ana{margin:0 0 18px}
+.pa-intro{font-size:12.5px;color:var(--brown-soft);margin-bottom:12px;line-height:1.5}
+.pa-summary{background:var(--brown-deep);color:#fff;border-radius:16px;padding:15px 17px;margin-bottom:14px}
+.pa-summary .pa-sum-t{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--gold);margin-bottom:10px}
+.pa-summary ul{margin:0;padding:0;list-style:none;display:grid;gap:9px}
+.pa-summary li{font-size:13px;line-height:1.45;display:flex;gap:8px;align-items:flex-start;color:rgba(255,255,255,.92)}
+.pa-summary li .pa-dot{flex:none;font-size:11px;margin-top:2px}
+.pa-card{background:var(--surface);border:1.5px solid var(--line);border-left:4px solid var(--gold);border-radius:14px;padding:14px 16px;margin-bottom:11px}
+.pa-card-h{font-size:14px;font-weight:700;color:var(--brown-deep);display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pa-card-b{font-size:13px;color:var(--brown);line-height:1.55}
+.pa-card-b b{color:var(--brown-deep)}
+.pa-stat{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+.pa-stat span:last-child{font-weight:700;color:var(--brown-deep);text-align:right;white-space:nowrap}
+.pa-rec{margin-top:9px;background:var(--surface2);border-radius:10px;padding:9px 11px;font-size:12.5px;color:var(--brown-deep);line-height:1.5}
+.pa-delta-up{color:var(--green);font-weight:700}
+.pa-delta-down{color:var(--red);font-weight:700}
+.pa-delta-flat{color:var(--brown-soft);font-weight:700}
+
 /* Popup */
 .popup-bg{position:fixed;inset:0;background:rgba(48,35,24,.55);backdrop-filter:blur(3px);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
 .popup-bg.show{opacity:1;pointer-events:auto}
@@ -1241,7 +1262,11 @@ async function loadPerfData(){
     w.forEach(function(row){ wstAll.push(row); });
     var nom=0;
     w.forEach(function(row){ var n=wastageNominal(row[1],row[3]); if(n!==null) nom+=n; });
-    daily.push({date:x.dt,sales:s,txn:t,wst:w.length,wstNom:nom});
+    // Dimensi tambahan utk Analisa Lanjutan
+    var tgt=Number(sd.target)||0;
+    var din=rs?((Number(rs[1])||0)+(Number(rs[2])||0)+(Number(rs[3])||0)):0; // QRIS+Transfer+CC
+    var onl=rs?((Number(rs[5])||0)+(Number(rs[7])||0)):0;                     // GrabFood+GoFood
+    daily.push({date:x.dt,sales:s,txn:t,wst:w.length,wstNom:nom,target:tgt,dineIn:din,online:onl});
   });
   daily.sort(function(a,b){return a.date<b.date?-1:1;});
   var isOwner=canSeeNominal();
@@ -1249,6 +1274,8 @@ async function loadPerfData(){
   // Simpan di global supaya onclick tak perlu menaruh JSON besar di atribut HTML
   // (JSON besar/berkarakter khusus bikin onclick rusak diam-diam).
   PERF_WST=wstAll;
+  PERF_DAILY=daily;
+  _PA_OPEN=false;
   var totalWstNom=0;
   daily.forEach(function(d){ totalWstNom+=d.wstNom||0; });
 
@@ -1262,6 +1289,9 @@ async function loadPerfData(){
     '<div class="pk-sub">'+wstAll.length+' entri</div><div class="clickable-hint">↗ klik detail</div></div>'+
   '</div>'+
   (failed?'<div style="font-size:12px;color:#b45309;margin:6px 0">⚠️ '+failed+' hari gagal dimuat</div>':'')+
+  // Analisa Lanjutan (rule-based)
+  '<button class="perf-ana-btn" onclick="togglePerfAnalysis()"><span id="pa-ico">🔍</span> <span id="pa-txt">Analisa Lanjutan</span></button>'+
+  '<div id="perf-analysis" class="perf-ana" style="display:none"></div>'+
   // Rincian harian
   '<div class="sec">📅 Rincian Harian</div>'+
   '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th style="text-align:right">Sales</th><th style="text-align:right">Transaksi</th><th style="text-align:right">Rata/Trx</th><th style="text-align:right">'+(isOwner?'Wastage (Rp)':'Wastage')+'</th></tr></thead><tbody>'+
@@ -1273,6 +1303,255 @@ async function loadPerfData(){
   '</tbody></table></div>';
 }
 window.loadPerfData=loadPerfData;
+
+// =========================================================
+// ANALISA LANJUTAN (rule-based) — Perf Overview
+// =========================================================
+var PERF_DAILY=[];
+var _PA_OPEN=false;
+var _PA_DOW=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+
+function _paTrend(vals){
+  var arr=(vals||[]).filter(function(v){return v!=null && !isNaN(v);});
+  var n=arr.length;
+  if(n<4) return {ok:false};
+  var h=Math.floor(n/2);
+  var a=arr.slice(0,h), b=arr.slice(n-h);
+  var ma=a.reduce(function(s,v){return s+v;},0)/a.length;
+  var mb=b.reduce(function(s,v){return s+v;},0)/b.length;
+  var delta=ma>0?((mb-ma)/ma*100):0;
+  return {ok:true, first:ma, last:mb, delta:delta, dir:(delta>2?'up':(delta<-2?'down':'flat'))};
+}
+function _paPct(d){
+  var r=Math.round(d*10)/10;
+  var s=(r>0?'+':'')+r+'%';
+  var cls=d>2?'pa-delta-up':(d<-2?'pa-delta-down':'pa-delta-flat');
+  return '<span class="'+cls+'">'+s+'</span>';
+}
+function _paCard(accent,ico,title,bodyHtml){
+  return '<div class="pa-card" style="border-left-color:'+accent+'"><div class="pa-card-h"><span>'+ico+'</span>'+title+'</div><div class="pa-card-b">'+bodyHtml+'</div></div>';
+}
+
+function togglePerfAnalysis(){
+  var box=document.getElementById('perf-analysis'); if(!box) return;
+  _PA_OPEN=!_PA_OPEN;
+  var ico=document.getElementById('pa-ico'), txt=document.getElementById('pa-txt');
+  if(ico) ico.textContent=_PA_OPEN?'▲':'🔍';
+  if(txt) txt.textContent=_PA_OPEN?'Tutup Analisa':'Analisa Lanjutan';
+  if(_PA_OPEN){
+    box.innerHTML=renderPerfAnalysis(PERF_DAILY, PERF_WST, canSeeNominal());
+    box.style.display='block';
+    try{ box.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){}
+  } else { box.style.display='none'; }
+}
+window.togglePerfAnalysis=togglePerfAnalysis;
+
+function renderPerfAnalysis(dailyAll, wstAll, isOwner){
+  var daily=(dailyAll||[]);
+  var op=daily.filter(function(d){ return (d.sales>0)||(d.txn>0); }); // hari operasi (buang hari tutup/kosong)
+  var nOp=op.length;
+  var totalSales=daily.reduce(function(s,d){return s+(d.sales||0);},0);
+  var totalTxn=daily.reduce(function(s,d){return s+(d.txn||0);},0);
+
+  if(nOp<4){
+    return '<div class="pa-intro">Rentang aktif cuma <b>'+nOp+' hari berdata</b>. Analisa tren butuh minimal <b>4 hari</b> — pilih rentang lebih panjang (idealnya 14–30 hari) biar polanya kebaca.</div>';
+  }
+
+  var points=[]; // {sev, text}
+  var cards='';
+
+  var salesSeries=op.map(function(d){return d.sales;});
+  var txnSeries=op.map(function(d){return d.txn;});
+  var rtxSeries=op.map(function(d){return d.txn>0?d.sales/d.txn:null;}).filter(function(v){return v!=null;});
+
+  var sT=_paTrend(salesSeries);
+  var tT=_paTrend(txnSeries);
+  var rT=_paTrend(rtxSeries);
+  var avgSales=Math.round(totalSales/nOp);
+  var avgRtx=totalTxn>0?Math.round(totalSales/totalTxn):0;
+
+  // ── Sales & Traffic ──
+  (function(){
+    var body='<div class="pa-stat"><span>Rata sales / hari operasi</span><span>'+fmtRp(avgSales)+'</span></div>';
+    var verdict='', rec='', accent='var(--gold)', ico='📊';
+    if(sT.ok){
+      body+='<div class="pa-stat"><span>Tren sales (awal→akhir)</span><span>'+fmtRp(Math.round(sT.first))+' → '+fmtRp(Math.round(sT.last))+' '+_paPct(sT.delta)+'</span></div>';
+      if(tT.ok) body+='<div class="pa-stat"><span>Tren transaksi</span><span>'+Math.round(tT.first)+' → '+Math.round(tT.last)+' '+_paPct(tT.delta)+'</span></div>';
+      if(sT.dir==='down'){
+        accent='var(--red)'; ico='📉';
+        if(tT.ok && tT.dir==='down'){
+          verdict='Sales <b>turun</b> dan ini <b>terutama karena traffic</b> — jumlah transaksi ikut turun.';
+          rec='Dorong kunjungan: promo jam sepi, konten IG/TikTok rutin, cek rating & visibilitas di GoFood/GrabFood, foto menu dibikin menarik. Ini soal "orangnya kurang dateng", bukan cuma nilai belanja.';
+          points.push({sev:'high',text:'📉 Sales turun '+Math.abs(Math.round(sT.delta))+'% — dipicu traffic/transaksi yang menurun.'});
+        } else {
+          verdict='Sales <b>turun</b>, tapi jumlah transaksi <b>relatif stabil</b> — jadi ini lebih ke <b>nilai per struk</b>, bukan traffic. Lihat kartu Rata/Trx di bawah.';
+          rec='Traffic aman, jadi fokus utama di menaikin nilai per transaksi (rekomendasi ada di kartu Rata/Trx).';
+          points.push({sev:'high',text:'📉 Sales turun '+Math.abs(Math.round(sT.delta))+'% — dari sisi nilai per transaksi (traffic stabil).'});
+        }
+      } else if(sT.dir==='up'){
+        accent='var(--green)'; ico='📈';
+        verdict='Sales <b>naik</b> '+_paPct(sT.delta)+'. '+((tT.ok&&tT.dir==='up')?'Traffic ikut naik — momentum bagus.':'Didorong nilai per transaksi yang membaik.');
+        rec='Pertahankan momentum: kunci apa yang lagi jalan (menu/promo/jam ramai) dan konsistenin.';
+        points.push({sev:'good',text:'📈 Sales naik '+Math.round(sT.delta)+'% dibanding awal periode.'});
+      } else {
+        verdict='Sales <b>relatif stabil</b> sepanjang periode.';
+      }
+    } else { verdict='Data belum cukup buat baca tren sales.'; }
+    body+='<div style="margin-top:8px">'+verdict+'</div>';
+    if(rec) body+='<div class="pa-rec">💡 '+rec+'</div>';
+    cards+=_paCard(accent, ico, 'Sales & Traffic', body);
+  })();
+
+  // ── Rata / Transaksi ──
+  (function(){
+    var accent='var(--gold)', ico='🧾', rec='';
+    var body='<div class="pa-stat"><span>Rata-rata / transaksi</span><span>'+fmtRp(avgRtx)+'</span></div>';
+    if(rT.ok){
+      body+='<div class="pa-stat"><span>Tren rata/trx (awal→akhir)</span><span>'+fmtRp(Math.round(rT.first))+' → '+fmtRp(Math.round(rT.last))+' '+_paPct(rT.delta)+'</span></div>';
+      if(rT.dir==='down'){
+        accent='var(--red)'; ico='📉';
+        body+='<div style="margin-top:8px">Nilai per transaksi <b>menurun</b> '+_paPct(rT.delta)+' — pelanggan belanja lebih sedikit per struk.</div>';
+        rec='Naikin AOV: tawarin <b>topping/upsize</b> pas order, buat <b>paket bundling</b> (dessert + minuman), taruh add-on menarik di kasir, atau promo <b>min. belanja</b> (mis. gratis topping di atas nominal tertentu).';
+        points.push({sev:'high',text:'🧾 Rata/trx turun '+Math.abs(Math.round(rT.delta))+'% — dorong bundling & upsell.'});
+      } else if(rT.dir==='up'){
+        accent='var(--green)';
+        body+='<div style="margin-top:8px">Nilai per transaksi <b>naik</b> '+_paPct(rT.delta)+' 👍 — upsell/bundling lagi jalan.</div>';
+        points.push({sev:'good',text:'🧾 Rata/trx naik '+Math.round(rT.delta)+'%.'});
+      } else {
+        body+='<div style="margin-top:8px">Nilai per transaksi <b>relatif stabil</b>.</div>';
+      }
+    }
+    if(rec) body+='<div class="pa-rec">💡 '+rec+'</div>';
+    cards+=_paCard(accent, ico, 'Nilai per Transaksi (Rata/Trx)', body);
+  })();
+
+  // ── Target ──
+  (function(){
+    var withT=daily.filter(function(d){return (d.target||0)>0;});
+    if(!withT.length){
+      cards+=_paCard('var(--brown-soft)','🎯','Target Harian','Belum ada target terisi di rentang ini. Isi <b>DAILY_TARGET</b> biar pencapaian bisa dipantau otomatis di sini.');
+      return;
+    }
+    var hit=withT.filter(function(d){return (d.sales||0)>=d.target;}).length;
+    var totT=withT.reduce(function(s,d){return s+d.target;},0);
+    var totS=withT.reduce(function(s,d){return s+(d.sales||0);},0);
+    var rate=Math.round(hit/withT.length*100);
+    var accent=rate>=70?'var(--green)':(rate>=40?'var(--orange)':'var(--red)');
+    var gap=totS-totT;
+    var body='<div class="pa-stat"><span>Hari tembus target</span><span>'+hit+' / '+withT.length+' ('+rate+'%)</span></div>'+
+             '<div class="pa-stat"><span>Total sales vs target</span><span>'+fmtRp(totS)+' / '+fmtRp(totT)+'</span></div>'+
+             '<div class="pa-stat"><span>Selisih</span><span>'+(gap>=0?'+':'')+fmtRp(gap)+'</span></div>';
+    if(rate<50){
+      body+='<div class="pa-rec">💡 Baru '+rate+'% hari yang tembus target. Cek: targetnya realistis nggak? Kalau realistis, fokus eksekusi di hari-hari yang jauh dari target (lihat pola hari di bawah).</div>';
+      points.push({sev:'med',text:'🎯 Cuma '+rate+'% hari tembus target.'});
+    } else if(rate>=70){
+      points.push({sev:'good',text:'🎯 '+rate+'% hari tembus target 👍'});
+    }
+    cards+=_paCard(accent,'🎯','Pencapaian Target', body);
+  })();
+
+  // ── Pola Hari (Day-of-Week) ──
+  if(nOp>=7){
+    (function(){
+      var sum={}, cnt={};
+      op.forEach(function(d){
+        var wd=new Date(d.date+'T00:00:00').getDay();
+        sum[wd]=(sum[wd]||0)+d.sales; cnt[wd]=(cnt[wd]||0)+1;
+      });
+      var rows=[];
+      for(var wd in sum){ if(sum.hasOwnProperty(wd)) rows.push({wd:+wd, avg:sum[wd]/cnt[wd]}); }
+      if(rows.length>=2){
+        rows.sort(function(a,b){return b.avg-a.avg;});
+        var best=rows[0], worst=rows[rows.length-1];
+        var body='<div class="pa-stat"><span>Hari terkuat</span><span>'+_PA_DOW[best.wd]+' · '+fmtRp(Math.round(best.avg))+'</span></div>'+
+                 '<div class="pa-stat"><span>Hari terlemah</span><span>'+_PA_DOW[worst.wd]+' · '+fmtRp(Math.round(worst.avg))+'</span></div>'+
+                 '<div class="pa-rec">💡 Coba aktivasi/promo di <b>'+_PA_DOW[worst.wd]+'</b> buat ngratain, dan pastikan stok + staffing kuat di <b>'+_PA_DOW[best.wd]+'</b> biar nggak kehabisan pas ramai.</div>';
+        cards+=_paCard('var(--blue)','📅','Pola Hari (Day-of-Week)', body);
+        points.push({sev:'low',text:'📅 Terkuat '+_PA_DOW[best.wd]+', terlemah '+_PA_DOW[worst.wd]+' — garap hari lemah.'});
+      }
+    })();
+  }
+
+  // ── Channel Mix ──
+  (function(){
+    var totOnline=daily.reduce(function(s,d){return s+(d.online||0);},0);
+    var totDine=daily.reduce(function(s,d){return s+(d.dineIn||0);},0);
+    var tot=totOnline+totDine;
+    if(tot<=0) return;
+    var onPct=Math.round(totOnline/tot*100);
+    var shareSeries=op.map(function(d){var t=(d.online||0)+(d.dineIn||0); return t>0?(d.online/t*100):null;}).filter(function(v){return v!=null;});
+    var shT=_paTrend(shareSeries);
+    var body='<div class="pa-stat"><span>Online (GoFood+Grab)</span><span>'+fmtRp(totOnline)+' · '+onPct+'%</span></div>'+
+             '<div class="pa-stat"><span>Dine-in (QRIS+Transfer+CC)</span><span>'+fmtRp(totDine)+' · '+(100-onPct)+'%</span></div>';
+    var accent='var(--gold)', rec='';
+    if(shT.ok && shT.dir==='up' && onPct>=40){
+      accent='var(--orange)';
+      rec='Porsi online <b>naik</b> & sudah '+onPct+'%. Komisi GoFood/Grab (~20%) mangkas margin — dorong <b>dine-in / direct order (QRIS)</b> lewat promo in-store atau member, dan cek harga menu online udah nutupin komisi belum.';
+      points.push({sev:'med',text:'🛵 Porsi online naik ('+onPct+'%) — margin ketekan komisi.'});
+    } else if(onPct>=55){
+      accent='var(--orange)';
+      rec='Mayoritas sales dari online ('+onPct+'%). Pastikan harga menu online udah nutupin komisi ~20%, dan seimbangin dengan dorong dine-in.';
+      points.push({sev:'med',text:'🛵 Online dominan ('+onPct+'%) — jaga margin & harga online.'});
+    }
+    if(rec) body+='<div class="pa-rec">💡 '+rec+'</div>';
+    cards+=_paCard(accent,'🛵','Komposisi Channel', body);
+  })();
+
+  // ── Wastage ──
+  (function(){
+    if(!wstAll || !wstAll.length){
+      cards+=_paCard('var(--green)','🗑️','Wastage','Nggak ada wastage tercatat di rentang ini. Kalau operasional jalan normal, pastikan crew memang input wastage-nya ya.');
+      return;
+    }
+    var byItem={}, byReason={}, totNom=0;
+    wstAll.forEach(function(r){
+      var item=r[1]||'(?)'; var qty=Number(r[3])||0; var unit=r[4]||''; var reason=(r[5]||'(tanpa alasan)');
+      if(!byItem[item]) byItem[item]={nom:0,qty:0,cnt:0,unit:unit};
+      byItem[item].cnt++; byItem[item].qty+=qty;
+      var nom=wastageNominal(r[1],r[3]);
+      if(nom!=null){ byItem[item].nom+=nom; totNom+=nom; }
+      byReason[reason]=(byReason[reason]||0)+1;
+    });
+    var items=Object.keys(byItem).map(function(k){var o=byItem[k]; return {name:k,nom:o.nom,qty:o.qty,cnt:o.cnt,unit:o.unit};});
+    items.sort(function(a,b){ return isOwner?(b.nom-a.nom):(b.cnt-a.cnt); });
+    var top=items.slice(0,3);
+    var reasons=Object.keys(byReason).map(function(k){return {r:k,c:byReason[k]};}).sort(function(a,b){return b.c-a.c;});
+    var topReason=reasons[0];
+
+    var body=top.map(function(it,i){
+      var val=isOwner?fmtRp2(it.nom):(((it.qty?(Math.round(it.qty*100)/100)+' '+(it.unit||''):''))+' · '+it.cnt+'x');
+      return '<div class="pa-stat"><span>'+(i+1)+'. '+it.name+'</span><span>'+val+'</span></div>';
+    }).join('');
+    if(isOwner){
+      body+='<div class="pa-stat"><span>Total nominal wastage</span><span>'+fmtRp2(totNom)+'</span></div>';
+      if(totalSales>0){
+        var pct=totNom/totalSales*100;
+        body+='<div class="pa-stat"><span>% terhadap sales</span><span>'+(Math.round(pct*100)/100)+'%</span></div>';
+      }
+    }
+    body+='<div class="pa-stat"><span>Alasan dominan</span><span>'+topReason.r+' ('+topReason.c+'x)</span></div>';
+    var big=top[0];
+    body+='<div class="pa-rec">💡 Penyumbang terbesar: <b>'+big.name+'</b> — alasan terbanyak "<b>'+topReason.r+'</b>". Prep '+big.name+' lebih sesuai forecast (pakai <b>Kalkulator Prep</b>), terapin <b>FIFO</b>, dan kalau alasannya basi/rusak cek suhu & cara simpan.</div>';
+    cards+=_paCard('var(--red)','🗑️','Wastage', body);
+    points.push({sev:'med',text:'🗑️ Wastage terbesar: '+big.name+(isOwner?(' ('+fmtRp2(big.nom)+')'):'')+'.'});
+  })();
+
+  // ── Poin Utama (ringkasan) ──
+  var order={high:0,med:1,good:2,low:3};
+  points.sort(function(a,b){return (order[a.sev]-order[b.sev]);});
+  var sevDot={high:'🔴',med:'🟠',good:'🟢',low:'🔵'};
+  var summary='';
+  if(points.length){
+    summary='<div class="pa-summary"><div class="pa-sum-t">📌 Poin Utama</div><ul>'+
+      points.map(function(p){ return '<li><span class="pa-dot">'+(sevDot[p.sev]||'•')+'</span><span>'+p.text+'</span></li>'; }).join('')+
+      '</ul></div>';
+  }
+
+  var intro='<div class="pa-intro">Analisa otomatis dari <b>'+nOp+' hari operasi</b> di rentang ini. Ini alat bantu arah — bukan angka mutlak, tetap cross-check sama kondisi lapangan.</div>';
+  return intro+summary+cards;
+}
+window.renderPerfAnalysis=renderPerfAnalysis;
+
 
 function showSalesDetail(rs){
   if(!rs){ showPopup('Detail Sales','Belum ada data sales'); return; }
