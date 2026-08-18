@@ -3065,8 +3065,6 @@ function buildPayslipPdf(d,x){
   try{ var lg=getLogoDataUrl(); if(lg) doc.addImage(lg,'PNG',M,13,24,24); }catch(e){}
   doc.setTextColor(ESP[0],ESP[1],ESP[2]); doc.setFont('helvetica','bold'); doc.setFontSize(10);
   doc.text('PT SUKA SEGAR INDONESIA',M,42);
-  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(SOFT[0],SOFT[1],SOFT[2]);
-  doc.text('Comfort in every spoon and sip',M,46);
   doc.setTextColor(ESP[0],ESP[1],ESP[2]); doc.setFont('helvetica','bold'); doc.setFontSize(21);
   doc.text('PAYSLIP',W-M,24,{align:'right'});
   doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.text('PAY PERIOD:',W-M,33,{align:'right'});
@@ -3079,16 +3077,15 @@ function buildPayslipPdf(d,x){
     doc.setFont('helvetica','normal'); doc.setTextColor(ESP[0],ESP[1],ESP[2]); doc.setFontSize(9.5); doc.text(String(v||'-'),M+38,yy);
   }
   kv('Employee',d.employee_name,y);
-  kv('Store',String(d.store).replace('SOYASUKA_','SoyaSuka \u2014 '),y+6);
+  kv('Store',String(d.store).replace('SOYASUKA_','SOYA SUKA \u2014 '),y+6);
   kv('Join Date',d.join_date?fmtDateShort(d.join_date):'-',y+12);
-  kv('Work Days',x.wdCap+' / 26',y+18);
 
   var ty=y+30;
   var totalEarn=x.prorate+x.otFee+x.bonus;
   doc.autoTable({
     startY:ty, margin:{left:M,right:M},
     head:[['EARNINGS','AMOUNT']],
-    body:[['Basic Salary (prorate)',rp(x.prorate)],['Overtime ('+x.ot+' jam)',rp(x.otFee)],['Bonus',rp(x.bonus)]],
+    body:[['Basic Salary',rp(x.prorate)],['Overtime',rp(x.otFee)],['Bonus',rp(x.bonus)]],
     foot:[['Total Earnings',rp(totalEarn)]],
     theme:'grid',
     headStyles:{fillColor:ESP,textColor:[255,255,255],fontStyle:'bold',fontSize:9},
