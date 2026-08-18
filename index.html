@@ -787,6 +787,7 @@ var NAV_DEFS = {
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
     {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
     {id:'payslip',ico:'🧾',lbl:'Generate Payslip',sec:'HR'},
+    {id:'payslip-history',ico:'📄',lbl:'Riwayat Payslip',sec:'HR'},
     {id:'cogs',ico:'💹',lbl:'COGS Overview',sec:'Analitik'},
     {id:'variance',ico:'🔍',lbl:'Variance Stok',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
@@ -807,6 +808,7 @@ var NAV_DEFS = {
     {id:'cek-absensi',ico:'🕐',lbl:'Cek Absensi',sec:'Monitoring'},
     {id:'overtime-rekap',ico:'⏱️',lbl:'Rekap Overtime',sec:''},
     {id:'payslip',ico:'🧾',lbl:'Generate Payslip',sec:''},
+    {id:'payslip-history',ico:'📄',lbl:'Riwayat Payslip',sec:''},
   ]
 };
 
@@ -840,7 +842,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip','payslip-history':'Riwayat Payslip'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -911,6 +913,7 @@ async function renderPage(id){
     case 'cek-absensi': await renderCekAbsensi(c); break;
     case 'overtime-rekap': await renderOvertimeRekap(c); break;
     case 'payslip': renderPayslip(c); break;
+    case 'payslip-history': renderPayslipHistory(c); break;
     case 'izin-approval': await renderIzinApproval(c); break;
     case 'perf-overview': renderPerfOverview(c); break;
     case 'wastage-view': await renderWastageView(c); break;
@@ -3119,6 +3122,91 @@ function buildPayslipPdf(d,x){
   return doc;
 }
 window.buildPayslipPdf=buildPayslipPdf;
+
+// ================= RIWAYAT PAYSLIP (HR / Owner) =================
+var _PSHIST=[];
+
+function renderPayslipHistory(c){
+  var now=new Date(); var curMonth=now.toISOString().slice(0,7);
+  c.innerHTML='<div class="abs-filter">'+
+    '<select id="pshx-store"><option value="">— Pilih Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
+    '<input type="month" id="pshx-month" value="'+curMonth+'" onchange="pshxHint()">'+
+    '<button class="save-btn" onclick="pshxLoad()">Muat</button>'+
+    '</div>'+
+    '<div id="pshx-hint" style="font-size:12px;color:var(--brown-soft);margin:-6px 0 12px 2px"></div>'+
+    '<div id="pshx-content"><div class="empty"><div class="ei">📄</div><div>Pilih toko & bulan lalu klik Muat</div></div></div>';
+  pshxHint();
+}
+window.renderPayslipHistory=renderPayslipHistory;
+
+function pshxHint(){
+  var m=(document.getElementById('pshx-month')||{}).value; var el=document.getElementById('pshx-hint'); if(!el||!m) return;
+  var r=caRange('payroll',m);
+  el.textContent='Periode gajian: '+fmtDateShort(r.from)+' – '+fmtDateShort(r.to);
+}
+window.pshxHint=pshxHint;
+
+async function pshxLoad(){
+  var store=(document.getElementById('pshx-store')||{}).value;
+  var month=(document.getElementById('pshx-month')||{}).value;
+  var box=document.getElementById('pshx-content');
+  if(!store||!month){ box.innerHTML='<div class="empty"><div class="ei">📄</div><div>Lengkapi toko & bulan dulu</div></div>'; return; }
+  box.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getPayslipHistory',token:S.token,store:store,month:month});
+    if(!r.ok){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>'; return; }
+    _PSHIST=r.rows||[];
+    if(!_PSHIST.length){ box.innerHTML='<div class="empty"><div class="ei">📄</div><div>Belum ada payslip tersimpan untuk '+r.period_label+'</div></div>'; return; }
+    box.innerHTML='<div class="sec">📄 '+r.period_label+' — '+_PSHIST.length+' staff</div>'+
+      _PSHIST.map(function(row,i){
+        return '<div onclick="pshxOpen('+i+')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer">'+
+          '<div><div style="font-weight:700;color:var(--brown-deep)">'+row.employee_name+'</div>'+
+          '<div style="font-size:11.5px;color:var(--brown-soft)">'+(row.role||'')+'</div></div>'+
+          '<div style="text-align:right"><div style="font-weight:700;color:var(--brown-deep)">'+fmtRp(row.take_home)+'</div>'+
+          '<div style="font-size:11px;color:var(--gold)">Lihat ▸</div></div></div>';
+      }).join('');
+  }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
+}
+window.pshxLoad=pshxLoad;
+
+function pshxOpen(i){
+  var d=_PSHIST[i]; if(!d) return;
+  var prorate=d.total_salary-d.ot_fee;
+  var body=''+
+    '<div class="pa-card-b">'+
+      '<div class="pa-stat"><span>Store</span><span>'+String(d.store).replace('SOYASUKA_','SOYA SUKA — ')+'</span></div>'+
+      '<div class="pa-stat"><span>Role</span><span>'+(d.role||'-')+'</span></div>'+
+      '<div class="pa-stat"><span>Join date</span><span>'+(d.join_date?fmtDateShort(d.join_date):'—')+'</span></div>'+
+      '<div class="pa-stat"><span>Pay period</span><span>'+d.period+'</span></div>'+
+      '<div style="border-top:1px solid var(--line);margin:9px 0"></div>'+
+      '<div class="pa-stat"><span>Basic Salary</span><span>'+fmtRp(prorate)+'</span></div>'+
+      '<div class="pa-stat"><span>Overtime</span><span>'+fmtRp(d.ot_fee)+'</span></div>'+
+      '<div class="pa-stat" style="border-top:1px solid var(--line);margin-top:4px;padding-top:7px"><span><b>Total Salary</b></span><span><b>'+fmtRp(d.total_salary)+'</b></span></div>'+
+      '<div class="pa-stat"><span>Bonus</span><span>+ '+fmtRp(d.bonus)+'</span></div>'+
+      '<div class="pa-stat"><span>Shortage</span><span style="color:var(--red)">− '+fmtRp(d.shortage)+'</span></div>'+
+      '<div class="pa-stat" style="border-top:2px solid var(--brown-deep);margin-top:4px;padding-top:8px;font-size:15px"><span><b>Take Home Pay</b></span><span><b>'+fmtRp(d.take_home)+'</b></span></div>'+
+      '<div style="font-size:11px;color:var(--brown-soft);margin-top:10px">Digenerate: '+(d.generated_at||'-')+(d.generated_by?(' · oleh '+d.generated_by):'')+'</div>'+
+    '</div>'+
+    '<button class="save-btn" style="width:100%;margin-top:12px" onclick="pshxPdf('+i+')">⬇ Download PDF</button>';
+  showPopup(d.employee_name, body);
+}
+window.pshxOpen=pshxOpen;
+
+async function pshxPdf(i){
+  var d=_PSHIST[i]; if(!d) return;
+  try{
+    await loadPdfLib();
+    var x={ basic:d.basic_salary, wd:d.work_days, wdCap:Math.min(d.work_days,26), ot:d.ot_hours,
+            bonus:d.bonus, shortage:d.shortage, prorate:(d.total_salary-d.ot_fee), otFee:d.ot_fee,
+            total:d.total_salary, take:d.take_home };
+    var dd={ employee_name:d.employee_name, store:d.store, join_date:d.join_date,
+             period_label:d.period, bank:d.bank, payment_account:d.payment_account };
+    var doc=buildPayslipPdf(dd,x);
+    doc.save('payslip_'+String(d.employee_name||'staff').replace(/\s+/g,'_')+'_'+String(d.period||'').replace(/\s+/g,'_')+'.pdf');
+  }catch(e){ alert(e.message); }
+}
+window.pshxPdf=pshxPdf;
+
 
 
 function showOtDetail(i){
