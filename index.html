@@ -3833,7 +3833,7 @@ async function renderOrder(c){
   ORDER_ITEMS=list;
   var rows=list.map(function(it,i){
     var pack=(it.fullPax!==''&&it.fullPax!==null?Number(it.fullPax).toLocaleString('id-ID'):'')+' '+(it.unit||'');
-    return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
+    return '<tr class="ord-row" data-nm="'+String(it.name).toLowerCase().replace(/"/g,'&quot;')+'"><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
       '<td style="font-weight:600">'+it.name+'</td>'+
       '<td style="color:var(--brown-soft);white-space:nowrap">'+pack.trim()+' / pack</td>'+
       '<td class="po-last" data-name="'+String(it.name).replace(/"/g,'&quot;')+'" style="font-size:11.5px;color:var(--brown-soft);white-space:nowrap">…</td>'+
@@ -3846,9 +3846,13 @@ async function renderOrder(c){
       '<div class="fg"><label>Toko</label><input class="fi2" value="'+S.store.replace('SOYASUKA_','')+'" readonly></div>'+
     '</div>'+
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin:12px 0">Isi jumlah <b>pack</b> yang ingin dipesan. Item yang dikosongkan tidak masuk PO.</div>'+
-    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:560px">'+
+    '<div style="display:flex;gap:6px;align-items:center;margin:12px 0 10px">'+
+      '<input type="text" id="order-search" placeholder="🔍 Cari bahan..." oninput="filterOrder()" style="flex:1;min-width:0;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:9px;padding:9px 12px;outline:none">'+
+      '<button id="order-search-clear" class="no-guard" onclick="clearOrderSearch()" style="display:none;flex:none;width:34px;height:36px;border:1.5px solid var(--line);background:var(--surface);border-radius:9px;color:var(--brown-soft);cursor:pointer;font-size:14px">✕</button>'+
+    '</div>'+
+    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" id="order-tbl" style="min-width:560px">'+
       '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Terakhir Order</th><th>Order (pack)</th></tr></thead>'+
-      '<tbody>'+rows+'</tbody></table></div>'+
+      '<tbody id="order-tbody">'+rows+'<tr id="order-nomatch" style="display:none"><td colspan="5" style="text-align:center;color:var(--brown-soft);padding:14px">Tidak ada bahan yang cocok</td></tr></tbody></table></div>'+
     '<div class="sec" style="margin-top:22px">🧾 Barang Lain (non-inbound)</div>'+
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.55">Barang di luar bahan baku yang <b>tidak masuk stok/inbound</b> (plastik wrap, plastik sampah, dll). Tulis nama, qty, satuan. Klik <b>+ Tambah Barang</b> untuk baris lain.</div>'+
     '<div id="manual-rows"></div>'+
@@ -3886,6 +3890,28 @@ function calcOrderTotal(){
   var t=document.getElementById('po-total'); if(t) t.textContent=n+' item dipilih';
 }
 window.calcOrderTotal=calcOrderTotal;
+
+// Search bahan di tabel order: cuma hide/show baris (nilai yg sudah diisi tetap tersimpan).
+function filterOrder(){
+  var inp=document.getElementById('order-search'); if(!inp) return;
+  var q=inp.value.trim().toLowerCase();
+  var shown=0;
+  document.querySelectorAll('#order-tbody .ord-row').forEach(function(tr){
+    var nm=tr.getAttribute('data-nm')||'';
+    var match=!q||nm.indexOf(q)>=0;
+    tr.style.display=match?'':'none';
+    if(match) shown++;
+  });
+  var nm=document.getElementById('order-nomatch'); if(nm) nm.style.display=shown?'none':'';
+  var clr=document.getElementById('order-search-clear'); if(clr) clr.style.display=q?'':'none';
+}
+window.filterOrder=filterOrder;
+function clearOrderSearch(){
+  var inp=document.getElementById('order-search'); if(inp){ inp.value=''; }
+  filterOrder();
+  if(inp) inp.focus();
+}
+window.clearOrderSearch=clearOrderSearch;
 
 // Isi kolom 'Terakhir Order' dari riwayat PO toko (async, tidak menahan render).
 async function loadLastOrdered(){
