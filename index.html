@@ -1154,12 +1154,14 @@ async function renderDashboard(c){
       '<button class="ftab" style="padding:7px 14px" onclick="openMonthlyExport()">📊 Export Bulanan</button>'+
       '<button class="ftab" style="padding:7px 14px" onclick="openPriceLog()">💹 Riwayat Harga</button>'+
     '</div>'+
+    '<div id="d-birthday"></div>'+
     storeSel+
     '<div class="kpi-grid" id="d-kpi"><div class="kpi"><div class="kpi-label">Pilih toko</div><div class="kpi-val" style="font-size:14px">untuk melihat data</div></div></div>'+
     '<div class="sec" id="d-chart-sec" style="display:none">📈 Sales Bulan Ini (Tgl 1 – Hari Ini)</div>'+
     '<div id="d-chart"></div>'+
     '<div id="d-status">–</div>';
     loadDashBanners();
+    loadBirthdays();
     if(S.store){ fillOwnerDashboard(S.store); }
   }
 }
@@ -1183,6 +1185,24 @@ function fillStaffDashboard(sd){
   var mg=document.getElementById('d-missions'); if(!mg)return;
   mg.innerHTML=missions.map(function(m){ return '<div class="mission'+(m.done?' done':'')+'" onclick="navigateTo(\''+m.page+'\')" style="cursor:pointer"><span class="mic">'+m.ico+'</span><div><div class="ml">'+m.lbl+'</div><div class="ms">'+m.sub+'</div></div>'+(m.done?'<span class="mck">✅</span>':'')+'</div>'; }).join('');
 }
+
+// Card ulang tahun bulan ini (lintas toko) — dari kolom birth_date (K) di USERS.
+async function loadBirthdays(){
+  var box=document.getElementById('d-birthday'); if(!box) return;
+  try{
+    var r=await api({action:'getBirthdays',token:S.token});
+    if(!r||!r.ok){ box.innerHTML=''; return; }
+    var rows=r.data||[];
+    var inner=rows.length? rows.map(function(b){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">'+
+        '<div><span style="font-weight:600;color:var(--brown-deep)">'+b.display_name+'</span>'+
+        (b.store?' <span style="font-size:10.5px;color:var(--brown-soft)">· '+String(b.store).replace('SOYASUKA_','')+'</span>':'')+'</div>'+
+        '<span style="font-weight:700;color:var(--gold);white-space:nowrap">🎂 '+b.label+'</span></div>';
+    }).join('') : '<div style="font-size:12.5px;color:var(--brown-soft);padding:6px 0">Tidak ada yang ulang tahun bulan ini.</div>';
+    box.innerHTML='<div class="card" style="margin-bottom:16px"><div class="card-title">🎂 List Ulang Tahun Bulan Ini</div>'+inner+'</div>';
+  }catch(e){ box.innerHTML=''; }
+}
+window.loadBirthdays=loadBirthdays;
 
 async function fillOwnerDashboard(store){
   var kpig=document.getElementById('d-kpi');
