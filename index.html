@@ -1828,16 +1828,21 @@ function fmtTime(s){ var c=clockWIB(s); return c?c.hm:''; }
 // =========================================================
 var wstPhoto=null;
 var SO_ITEMS=[];
+var WST_ING=[];
 async function renderWastage(c){
   if(!ensureStore(c)) return;
   var sd=await loadStoreData(S.store); var today=sd?sd.wastageToday||[]:[];
   var ingList=(sd&&sd.ingList)||[];
-  var ingOpts='<option value="">— Pilih bahan/menu —</option>'+ingList.map(function(i){return '<option value="'+i.name+'" data-unit="'+i.unit+'">'+i.name+'</option>';}).join('');
+  WST_ING=ingList;
   c.innerHTML='<div class="card">'+
   '<div class="card-title">🗑️ Input Wastage</div>'+
   '<div class="form-grid">'+
   '<div class="fg"><label>Tanggal</label><input class="fi2" type="date" id="wst-date" value="'+S.today+'" max="'+S.today+'" title="Bisa pilih hari ini atau tanggal sebelumnya (kalau lupa input)"></div>'+
-  '<div class="fg"><label>Bahan / Menu</label><select class="fi2" id="wst-item" onchange="fillUnit()">'+ingOpts+'</select></div>'+
+  '<div class="fg"><label>Bahan / Menu</label>'+
+    '<input class="fi2" type="text" id="wst-item-search" placeholder="🔍 Cari bahan/menu..." autocomplete="off" oninput="filterWstItems()" onfocus="filterWstItems()" onblur="setTimeout(hideWstList,180)">'+
+    '<input type="hidden" id="wst-item">'+
+    '<div id="wst-item-list" style="display:none;max-height:230px;overflow-y:auto;border:1.5px solid var(--line);border-top:none;border-radius:0 0 10px 10px;background:var(--surface);margin-top:-4px"></div>'+
+  '</div>'+
   '<div class="fg"><label>Jumlah</label><input class="fi2" type="number" id="wst-qty" placeholder="0"></div>'+
   '<div class="fg"><label>Satuan</label><input class="fi2" type="text" id="wst-unit" placeholder="–" readonly></div>'+
   '<div class="fg"><label>Alasan</label><select class="fi2" id="wst-reason" onchange="wstReasonChange()"><option value="">— Alasan —</option><option>Basi / expired</option><option>Bau</option><option>Jatuh / tumpah</option><option>Salah produksi</option><option>Kelebihan produksi</option><option>Kerusakan kemasan</option><option>Lainnya</option></select></div>'+
@@ -1851,8 +1856,38 @@ async function renderWastage(c){
   (today.length?today.map(function(r){return '<div class="wlog-item"><div class="wlog-dot"></div><div><div class="wlog-name">'+r[1]+' — '+r[3]+' '+r[4]+'</div><div class="wlog-meta">'+r[5]+' · Oleh: '+r[6]+'</div></div></div>';}).join(''):'<div class="empty" style="padding:20px"><div class="ei">✅</div><div>Belum ada wastage</div></div>')+
   '</div>';
 }
-function fillUnit(){var sel=document.getElementById('wst-item');var opt=sel&&sel.options[sel.selectedIndex];var u=opt?opt.getAttribute('data-unit')||'':'';var el=document.getElementById('wst-unit');if(el)el.value=u;}
+function fillUnit(){var sel=document.getElementById('wst-item');var opt=sel&&sel.options&&sel.options[sel.selectedIndex];var u=opt?opt.getAttribute('data-unit')||'':'';var el=document.getElementById('wst-unit');if(el)el.value=u;}
 window.fillUnit=fillUnit;
+
+// Cari bahan/menu (list panjang) — pilih dari hasil, tetap disimpan ke hidden #wst-item.
+function filterWstItems(){
+  var raw=((document.getElementById('wst-item-search')||{}).value||'');
+  var hid=document.getElementById('wst-item');
+  if(hid&&hid.value&&hid.value!==raw){ hid.value=''; var uu=document.getElementById('wst-unit'); if(uu) uu.value=''; }
+  var q=raw.trim().toLowerCase();
+  var list=document.getElementById('wst-item-list'); if(!list) return;
+  var filtered=q?WST_ING.filter(function(i){return String(i.name).toLowerCase().indexOf(q)>=0;}):WST_ING;
+  var shown=filtered.slice(0,80);
+  if(!shown.length){ list.innerHTML='<div style="padding:10px 12px;color:var(--brown-soft);font-size:12.5px">Tidak ada yang cocok</div>'; list.style.display='block'; return; }
+  list.innerHTML=shown.map(function(i){
+    var nm=String(i.name).replace(/"/g,'&quot;'); var un=String(i.unit||'').replace(/"/g,'&quot;');
+    return '<div onclick="pickWstItem(this)" data-nm="'+nm+'" data-unit="'+un+'" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line);font-size:13px;color:var(--brown-deep)">'+i.name+(i.unit?(' <span style="color:var(--brown-soft);font-size:11px">· '+i.unit+'</span>'):'')+'</div>';
+  }).join('')+(filtered.length>shown.length?('<div style="padding:8px 12px;color:var(--brown-soft);font-size:11px">+'+(filtered.length-shown.length)+' lagi… ketik untuk mempersempit</div>'):'');
+  list.style.display='block';
+}
+window.filterWstItems=filterWstItems;
+
+function pickWstItem(el){
+  var nm=el.getAttribute('data-nm')||''; var un=el.getAttribute('data-unit')||'';
+  var hid=document.getElementById('wst-item'); if(hid) hid.value=nm;
+  var uel=document.getElementById('wst-unit'); if(uel) uel.value=un;
+  var s=document.getElementById('wst-item-search'); if(s) s.value=nm;
+  hideWstList();
+}
+window.pickWstItem=pickWstItem;
+
+function hideWstList(){ var l=document.getElementById('wst-item-list'); if(l) l.style.display='none'; }
+window.hideWstList=hideWstList;
 function handleWstPhoto(inp){var f=inp.files[0];if(!f)return;var r=new FileReader();r.onload=function(e){var img=new Image();img.onload=function(){var canvas=document.createElement('canvas');var max=1200;var w=img.width,h=img.height;if(w>max){h=h*max/w;w=max;}if(h>max){w=w*max/h;h=max;}canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);wstPhoto=canvas.toDataURL('image/jpeg',0.75);var pw=document.getElementById('wst-photo-preview');if(pw)pw.innerHTML='<img class="photo-preview" src="'+wstPhoto+'">';};img.src=e.target.result;};r.readAsDataURL(f);}
 window.handleWstPhoto=handleWstPhoto;
 async function submitWastage(){
