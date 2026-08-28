@@ -2809,7 +2809,7 @@ async function loadCekAbsensi(){
   try{
     var r=await api({action:'getAbsensi',token:S.token,store:store,from:rg.from,to:rg.to});
     if(!r.ok){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
-    var rows=r.data||[], izin=r.izin||[];
+    var rows=r.data||[], izin=r.izin||[], meta=r.meta||{};
 
     function parseDStr(v){if(!v)return '';var s=String(v).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.substring(0,10);var d=new Date(s);if(!isNaN(d.getTime())){var d2=new Date(d.getTime()+7*3600000);return d2.toISOString().substring(0,10);}return s;}
 
@@ -2834,16 +2834,25 @@ async function loadCekAbsensi(){
     var totalHari=dates.length;
 
     // ── Rekap per orang ──
+    // Sel "hitam" = di luar masa kerja: sebelum join date, atau (utk Resign) setelah absen terakhir.
+    function isBlack(u,d){
+      var m=meta[(u||'').toLowerCase()]; if(!m) return false;
+      if(m.join_date && d<m.join_date) return true;
+      if(String(m.status).toLowerCase()==='resign' && m.last_att && d>m.last_att) return true;
+      return false;
+    }
     var rekap=staffList.map(function(u){
-      var hadir=0,jam=0,sakit=0,unpaid=0;
+      var hadir=0,jam=0,sakit=0,unpaid=0,valid=0;
       dates.forEach(function(d){
+        if(isBlack(u,d)) return;             // di luar masa kerja → tidak dihitung
+        valid++;
         var a=(byDate[d]||{})[u];
         var z=(izByDate[d]||{})[u];
         if(a&&a.ci_time){ hadir++; jam+=jamKerja(a.ci_time,a.co_time); }
         else if(z){ if(z.jenis==='Izin Sakit')sakit++; else unpaid++; }
       });
       return {u:u,nama:staffSet[u],hadir:hadir,jam:jam,sakit:sakit,unpaid:unpaid,
-              off:totalHari-hadir-sakit-unpaid};
+              off:valid-hadir-sakit-unpaid};
     });
 
     var csvBtn='<button class="ftab" style="padding:6px 14px" onclick="exportAbsensiXLSX()">⬇ Export Excel</button>';
@@ -2875,6 +2884,7 @@ async function loadCekAbsensi(){
       var lbl=d.slice(8,10)+'/'+d.slice(5,7);
       html+='<tr><td class="sticky" style="font-size:12px;left:0;font-weight:600">'+lbl+'</td>'+
       staffList.map(function(u){
+        if(isBlack(u,d)) return '<td style="background:#111;padding:0"></td>';
         var z=(izByDate[d]||{})[u];
         if(z){
           var col=z.jenis==='Izin Sakit'?'var(--blue)':'var(--orange)';
@@ -2895,7 +2905,7 @@ async function loadCekAbsensi(){
     box.innerHTML=html;
 
     // simpan utk export & popup detail
-    _CA={rekap:rekap,store:store,from:rg.from,to:rg.to,mode:mode,byDate:byDate,izByDate:izByDate,staffSet:staffSet,dates:dates};
+    _CA={rekap:rekap,store:store,from:rg.from,to:rg.to,mode:mode,byDate:byDate,izByDate:izByDate,staffSet:staffSet,dates:dates,meta:meta};
     _rekapCtx=_CA;
   }catch(e){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
@@ -3309,6 +3319,12 @@ function caStatus(u,d){
   if(z) return (z.jenis==='Izin Sakit')?'SAKIT':'UNPAID';
   return 'OFF';
 }
+function caBlack(u,d){
+  var m=_CA.meta&&_CA.meta[(u||'').toLowerCase()]; if(!m) return false;
+  if(m.join_date && d<m.join_date) return true;
+  if(String(m.status).toLowerCase()==='resign' && m.last_att && d>m.last_att) return true;
+  return false;
+}
 
 // ── Popup detail harian per staff + Edit/Hapus (Owner/AM/HR) ──
 function showStaffDetail(u){ _CAdetailU=u; _CAedit=null; renderStaffDetail(); }
@@ -3318,6 +3334,7 @@ function renderStaffDetail(){
   var u=_CAdetailU; if(!u||!_CA) return;
   var canEdit=['AM','Owner','HR'].indexOf(S.user.role)>=0;
   var rows=_CA.dates.map(function(d){
+    if(caBlack(u,d)) return '';   // di luar masa kerja → tidak ditampilkan
     var a=(_CA.byDate[d]||{})[u];
     var z=(_CA.izByDate[d]||{})[u];
     var lbl=d.slice(8,10)+'/'+d.slice(5,7);
@@ -3426,9 +3443,15 @@ async function exportAbsensiXLSX(){
     hr.height=18;
     // Data
     staff.forEach(function(u){
-      var arr=[_CA.staffSet[u]].concat(dates.map(function(d){return caStatus(u,d);}));
+      var arr=[_CA.staffSet[u]].concat(dates.map(function(d){return caBlack(u,d)?'':caStatus(u,d);}));
       var r=ws.addRow(arr);
-      r.eachCell(function(cell,col){ cell.border=thin; if(col>1) cell.alignment={horizontal:'center'}; else cell.font={bold:true}; });
+      r.eachCell({includeEmpty:true},function(cell,col){
+        cell.border=thin;
+        if(col===1){ cell.font={bold:true}; return; }
+        cell.alignment={horizontal:'center'};
+        var d=dates[col-2];
+        if(d && caBlack(u,d)){ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF111111'}}; }
+      });
     });
     // Lebar kolom
     ws.getColumn(1).width=24;
