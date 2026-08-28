@@ -2846,7 +2846,7 @@ async function loadCekAbsensi(){
               off:totalHari-hadir-sakit-unpaid};
     });
 
-    var csvBtn='<button class="ftab" style="padding:6px 14px" onclick="exportRekapCSV()">⬇ Export CSV</button>';
+    var csvBtn='<button class="ftab" style="padding:6px 14px" onclick="exportAbsensiXLSX()">⬇ Export Excel</button>';
     var html='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+
       '<div class="sec" style="margin:0">📊 Rekap ('+totalHari+' hari)</div>'+csvBtn+'</div>'+
       '<div class="tbl-wrap" style="overflow-x:auto;margin-bottom:6px"><table class="tbl" style="min-width:640px"><thead><tr>'+
@@ -2855,7 +2855,7 @@ async function loadCekAbsensi(){
       '<th style="text-align:center">Off / Tidak Tercatat</th></tr></thead><tbody>'+
       rekap.map(function(k){
         return '<tr>'+
-          '<td style="font-weight:600">'+k.nama+'</td>'+
+          '<td style="font-weight:600"><span onclick="showStaffDetail(\''+k.u+'\')" style="color:var(--brown-deep);cursor:pointer;text-decoration:underline;text-decoration-color:var(--gold);text-underline-offset:2px">'+k.nama+'</span></td>'+
           '<td style="text-align:center;font-weight:700">'+k.hadir+'</td>'+
           '<td style="text-align:center">'+k.jam.toFixed(1)+' jam</td>'+
           '<td style="text-align:center"'+(k.sakit?' style="text-align:center;color:var(--blue);font-weight:700"':'')+'>'+k.sakit+'</td>'+
@@ -2894,8 +2894,9 @@ async function loadCekAbsensi(){
     html+='</tbody></table></div>';
     box.innerHTML=html;
 
-    // simpan utk export
-    _rekapCtx={rekap:rekap,store:store,from:rg.from,to:rg.to,mode:mode};
+    // simpan utk export & popup detail
+    _CA={rekap:rekap,store:store,from:rg.from,to:rg.to,mode:mode,byDate:byDate,izByDate:izByDate,staffSet:staffSet,dates:dates};
+    _rekapCtx=_CA;
   }catch(e){box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.loadCekAbsensi=loadCekAbsensi;
@@ -3285,7 +3286,7 @@ function exportOtRekapCSV(){
 }
 window.exportOtRekapCSV=exportOtRekapCSV;
 
-var _rekapCtx=null;
+var _rekapCtx=null; var _CA=null, _CAdetailU=null, _CAedit=null, _xlsxLoading=null;
 function showIzinDetail(json){
   var z; try{ z=JSON.parse(json); }catch(e){ return; }
   showPopup('Izin — '+z.display_name,
@@ -3299,22 +3300,154 @@ function showIzinDetail(json){
 }
 window.showIzinDetail=showIzinDetail;
 
-function exportRekapCSV(){
-  if(!_rekapCtx) return;
-  var c=_rekapCtx;
-  var head=['Nama','Hari Kerja','Total Jam','Sakit','Unpaid Leave','Off/Tidak Tercatat'];
-  var lines=[['Toko',c.store.replace('SOYASUKA_','')].join(','),
-             ['Periode',c.from+' s/d '+c.to].join(','),'',head.join(',')];
-  c.rekap.forEach(function(k){
-    lines.push(['"'+String(k.nama).replace(/"/g,'""')+'"',k.hadir,k.jam.toFixed(1),k.sakit,k.unpaid,k.off].join(','));
-  });
-  var blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='Rekap_Absensi_'+c.store.replace('SOYASUKA_','')+'_'+c.from+'_'+c.to+'.csv';
-  a.click(); URL.revokeObjectURL(a.href);
+function caHHMM(v){ var c=clockWIB(v); return c?c.hm:''; }
+
+function caStatus(u,d){
+  var a=(_CA.byDate[d]||{})[u];
+  if(a&&a.ci_time) return 'V';
+  var z=(_CA.izByDate[d]||{})[u];
+  if(z) return (z.jenis==='Izin Sakit')?'SAKIT':'UNPAID';
+  return 'OFF';
 }
-window.exportRekapCSV=exportRekapCSV;
+
+// ── Popup detail harian per staff + Edit/Hapus (Owner/AM/HR) ──
+function showStaffDetail(u){ _CAdetailU=u; _CAedit=null; renderStaffDetail(); }
+window.showStaffDetail=showStaffDetail;
+
+function renderStaffDetail(){
+  var u=_CAdetailU; if(!u||!_CA) return;
+  var canEdit=['AM','Owner','HR'].indexOf(S.user.role)>=0;
+  var rows=_CA.dates.map(function(d){
+    var a=(_CA.byDate[d]||{})[u];
+    var z=(_CA.izByDate[d]||{})[u];
+    var lbl=d.slice(8,10)+'/'+d.slice(5,7);
+    var editing=_CAedit&&_CAedit.d===d;
+    var ci,co,status,ctrl='';
+    if(editing){
+      ci='<input type="time" id="csd-ci" value="'+caHHMM(a?a.ci_time:'')+'" style="font-family:inherit;padding:5px;border:1.5px solid var(--line);border-radius:7px;width:96px">';
+      co='<input type="time" id="csd-co" value="'+caHHMM(a?a.co_time:'')+'" style="font-family:inherit;padding:5px;border:1.5px solid var(--line);border-radius:7px;width:96px">';
+      status='<span style="color:var(--brown-soft);font-size:11px">edit…</span>';
+      ctrl='<button class="ftab" style="padding:4px 9px" onclick="caSaveEdit(\''+d+'\')">Simpan</button> <button class="ftab" style="padding:4px 9px" onclick="caCancelEdit()">Batal</button>';
+    } else if(z){
+      ci='–'; co='–';
+      status='<b style="color:'+(z.jenis==='Izin Sakit'?'var(--blue)':'var(--orange)')+'">'+(z.jenis==='Izin Sakit'?'SAKIT':'UNPAID')+'</b>';
+      ctrl='<span style="color:var(--line)">—</span>';
+    } else if(a&&a.ci_time){
+      ci=fmtTime(a.ci_time)||'–'; co=a.co_time?fmtTime(a.co_time):'–';
+      status='<b style="color:var(--green)">V</b>';
+      ctrl=canEdit?('<button class="ftab" style="padding:4px 9px" onclick="caEditDay(\''+d+'\')">✏️</button> <button class="ftab" style="padding:4px 9px;color:var(--red)" onclick="caDeleteDay(\''+d+'\')">🗑️</button>'):'';
+    } else {
+      ci='–'; co='–'; status='<span style="color:var(--brown-soft)">OFF</span>'; ctrl='';
+    }
+    return '<tr><td style="font-weight:600">'+lbl+'</td><td>'+ci+'</td><td>'+co+'</td><td style="text-align:center">'+status+'</td>'+(canEdit?('<td style="white-space:nowrap">'+ctrl+'</td>'):'')+'</tr>';
+  }).join('');
+  var head='<tr><th>Tgl</th><th>In</th><th>Out</th><th style="text-align:center">Status</th>'+(canEdit?'<th></th>':'')+'</tr>';
+  var body='<div class="tbl-wrap" style="max-height:60vh;overflow:auto"><table class="tbl" style="width:100%;min-width:'+(canEdit?'470':'320')+'px"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table></div>'+
+    (canEdit?'<div style="font-size:11px;color:var(--brown-soft);margin-top:8px;line-height:1.5">✏️ edit jam · 🗑️ hapus absen hari itu (jadi tak dihitung kerja). Izin SAKIT/UNPAID dikelola di menu Persetujuan.</div>':'');
+  showPopup('Absensi — '+_CA.staffSet[u], body, true);
+}
+
+function caEditDay(d){ _CAedit={d:d}; renderStaffDetail(); }
+window.caEditDay=caEditDay;
+function caCancelEdit(){ _CAedit=null; renderStaffDetail(); }
+window.caCancelEdit=caCancelEdit;
+
+async function caSaveEdit(d){
+  var u=_CAdetailU;
+  var ci=(document.getElementById('csd-ci')||{}).value||'';
+  var co=(document.getElementById('csd-co')||{}).value||'';
+  try{
+    var r=await api({action:'editAbsensi',token:S.token,store:_CA.store,date:d,username:u,clock_in:ci,clock_out:co});
+    if(!r.ok){ alert('❌ '+r.error); return; }
+    await caReloadKeepDetail();
+  }catch(e){ alert('❌ '+e.message); }
+}
+window.caSaveEdit=caSaveEdit;
+
+async function caDeleteDay(d){
+  var u=_CAdetailU;
+  if(!confirm('Hapus absensi '+_CA.staffSet[u]+' tanggal '+d+'?\nHari ini jadi TIDAK dihitung kerja.')) return;
+  try{
+    var r=await api({action:'deleteAbsensi',token:S.token,store:_CA.store,date:d,username:u});
+    if(!r.ok){ alert('❌ '+r.error); return; }
+    await caReloadKeepDetail();
+  }catch(e){ alert('❌ '+e.message); }
+}
+window.caDeleteDay=caDeleteDay;
+
+async function caReloadKeepDetail(){
+  var u=_CAdetailU; _CAedit=null;
+  await loadCekAbsensi();   // rebuild _CA + tabel dari server
+  _CAdetailU=u;
+  renderStaffDetail();      // buka lagi popup staff yg sama
+}
+
+// ── Export Excel (XLSX) — matrix staff × tanggal, rapi ──
+function loadXlsxLib(){
+  if(window.ExcelJS) return Promise.resolve();
+  if(_xlsxLoading) return _xlsxLoading;
+  _xlsxLoading=new Promise(function(res,rej){
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+    s.onload=function(){res();}; s.onerror=function(){rej(new Error('Gagal memuat library Excel'));};
+    document.head.appendChild(s);
+  });
+  return _xlsxLoading;
+}
+
+async function exportAbsensiXLSX(){
+  if(!_CA) return;
+  try{
+    await loadXlsxLib();
+    var ExcelJS=window.ExcelJS;
+    var thin={top:{style:'thin',color:{argb:'FFDDD3C4'}},left:{style:'thin',color:{argb:'FFDDD3C4'}},bottom:{style:'thin',color:{argb:'FFDDD3C4'}},right:{style:'thin',color:{argb:'FFDDD3C4'}}};
+    var dates=_CA.dates, staff=Object.keys(_CA.staffSet), ncol=1+dates.length;
+    var storeLbl=String(_CA.store).replace('SOYASUKA_','SOYA SUKA ');
+    var wb=new ExcelJS.Workbook();
+    var ws=wb.addWorksheet('Absensi',{views:[{state:'frozen',xSplit:1,ySplit:2}]});
+    // Judul
+    ws.mergeCells(1,1,1,ncol);
+    var t=ws.getCell(1,1);
+    t.value='Rekap Absensi — '+storeLbl+' · '+fmtDateShort(_CA.from)+' – '+fmtDateShort(_CA.to);
+    t.font={bold:true,size:13,color:{argb:'FFFFFFFF'}};
+    t.alignment={vertical:'middle',horizontal:'left'};
+    t.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF4A3727'}};
+    ws.getRow(1).height=24;
+    // Header
+    var hr=ws.getRow(2);
+    hr.getCell(1).value='Nama Staff';
+    dates.forEach(function(d,i){ hr.getCell(2+i).value=parseInt(d.slice(8,10),10); });
+    hr.eachCell(function(cell,col){
+      cell.font={bold:true,color:{argb:'FFFFFFFF'}};
+      cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF6F5842'}};
+      cell.alignment={horizontal:(col===1?'left':'center')};
+      cell.border=thin;
+    });
+    hr.height=18;
+    // Data
+    staff.forEach(function(u){
+      var arr=[_CA.staffSet[u]].concat(dates.map(function(d){return caStatus(u,d);}));
+      var r=ws.addRow(arr);
+      r.eachCell(function(cell,col){ cell.border=thin; if(col>1) cell.alignment={horizontal:'center'}; else cell.font={bold:true}; });
+    });
+    // Lebar kolom
+    ws.getColumn(1).width=24;
+    for(var c=2;c<=ncol;c++){ ws.getColumn(c).width=5; }
+    // Legenda
+    ws.addRow([]);
+    var lg=ws.addRow(['Keterangan:  V = Hadir   ·   OFF = tidak tercatat / libur   ·   SAKIT = izin sakit   ·   UNPAID = unpaid leave']);
+    ws.mergeCells(lg.number,1,lg.number,ncol);
+    lg.getCell(1).font={italic:true,size:9,color:{argb:'FF8A7B63'}};
+
+    var buf=await wb.xlsx.writeBuffer();
+    var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='Rekap_Absensi_'+String(_CA.store).replace('SOYASUKA_','')+'_'+_CA.from+'_'+_CA.to+'.xlsx';
+    a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){ alert('❌ '+e.message); }
+}
+window.exportAbsensiXLSX=exportAbsensiXLSX;
 function openAbsPhoto(url){
   if(!url){alert('Foto tidak tersedia');return;}
   showPopup('Foto Absensi','<img src="'+driveImg(url)+'" style="max-width:100%;border-radius:10px">');
