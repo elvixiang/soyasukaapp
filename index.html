@@ -789,6 +789,7 @@ var NAV_DEFS = {
     {id:'payslip',ico:'🧾',lbl:'Generate Payslip',sec:'HR'},
     {id:'payslip-history',ico:'📄',lbl:'Riwayat Payslip',sec:'HR'},
     {id:'cogs',ico:'💹',lbl:'COGS Overview',sec:'Analitik'},
+    {id:'so-value',ico:'📦',lbl:'Cek Value SO',sec:''},
     {id:'variance',ico:'🔍',lbl:'Variance Stok',sec:''},
     {id:'menu',ico:'🍵',lbl:'Menu',sec:'Referensi'},
     {id:'resep',ico:'📋',lbl:'Resep',sec:''},
@@ -843,7 +844,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip','payslip-history':'Riwayat Payslip'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip','payslip-history':'Riwayat Payslip','so-value':'Cek Value SO'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -910,6 +911,7 @@ async function renderPage(id){
     case 'checklist-closing': await renderChecklist(c,'closing'); break;
     case 'wastage': await renderWastage(c); break;
     case 'so': await renderSO(c); break;
+    case 'so-value': renderCekSOValue(c); break;
     case 'absensi': await renderAbsensi(c); break;
     case 'cek-absensi': await renderCekAbsensi(c); break;
     case 'overtime-rekap': await renderOvertimeRekap(c); break;
@@ -3471,6 +3473,111 @@ async function exportAbsensiXLSX(){
   }catch(e){ alert('❌ '+e.message); }
 }
 window.exportAbsensiXLSX=exportAbsensiXLSX;
+
+// ================= CEK VALUE STOCK OPNAME (Owner) =================
+var _SOV=null;
+
+function renderCekSOValue(c){
+  c.innerHTML='<div class="abs-filter">'+
+    '<select id="sov-store" onchange="sovLoadDates()"><option value="">— Pilih Toko —</option><option value="SOYASUKA_MOI">MOI</option><option value="SOYASUKA_BXC">BXC</option></select>'+
+    '<select id="sov-date"><option value="">— Pilih Tanggal SO —</option></select>'+
+    '<button class="save-btn" onclick="sovLoad()">Muat</button>'+
+    '</div>'+
+    '<div id="sov-content"><div class="empty"><div class="ei">📦</div><div>Pilih toko & tanggal Stock Opname lalu klik Muat</div></div></div>';
+}
+window.renderCekSOValue=renderCekSOValue;
+
+async function sovLoadDates(){
+  var store=(document.getElementById('sov-store')||{}).value;
+  var sel=document.getElementById('sov-date'); if(!sel) return;
+  sel.innerHTML='<option value="">— Pilih Tanggal SO —</option>';
+  if(!store) return;
+  sel.innerHTML='<option value="">Memuat…</option>';
+  try{
+    var r=await api({action:'getSOValue',token:S.token,store:store,date:''});
+    sel.innerHTML='<option value="">— Pilih Tanggal SO —</option>';
+    if(r&&r.ok){
+      (r.dates||[]).forEach(function(d){ var o=document.createElement('option'); o.value=d; o.textContent=fmtDateShort(d); sel.appendChild(o); });
+      if(!(r.dates||[]).length){ sel.innerHTML='<option value="">(belum ada SO)</option>'; }
+    } else { sel.innerHTML='<option value="">'+((r&&r.error)||'gagal')+'</option>'; }
+  }catch(e){ sel.innerHTML='<option value="">'+e.message+'</option>'; }
+}
+window.sovLoadDates=sovLoadDates;
+
+async function sovLoad(){
+  var store=(document.getElementById('sov-store')||{}).value;
+  var date=(document.getElementById('sov-date')||{}).value;
+  var box=document.getElementById('sov-content');
+  if(!store||!date){ box.innerHTML='<div class="empty"><div class="ei">📦</div><div>Lengkapi toko & tanggal dulu</div></div>'; return; }
+  box.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getSOValue',token:S.token,store:store,date:date});
+    if(!r.ok){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>'; return; }
+    _SOV={store:store,date:date,items:r.items||[],total:r.total||0};
+    if(!_SOV.items.length){ box.innerHTML='<div class="empty"><div class="ei">📦</div><div>Tidak ada data SO di tanggal '+fmtDateShort(date)+'</div></div>'; return; }
+    var rowsHtml=_SOV.items.map(function(it,i){
+      return '<tr><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
+        '<td style="font-weight:600">'+it.name+(it.price==null?' <span style="color:var(--red);font-size:10px">(no harga)</span>':'')+'</td>'+
+        '<td>'+(it.unit||'')+'</td>'+
+        '<td style="text-align:right">'+ (Math.round((it.qty||0)*100)/100) +'</td>'+
+        '<td style="text-align:right;font-weight:600">'+fmtRp(it.value)+'</td></tr>';
+    }).join('');
+    box.innerHTML=
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">'+
+        '<div style="font-size:13px;color:var(--brown-soft)">SO '+fmtDateShort(date)+' · '+String(store).replace('SOYASUKA_','')+' · '+_SOV.items.length+' bahan</div>'+
+        '<button class="ftab" style="padding:6px 14px" onclick="sovExport()">⬇ Export Excel</button>'+
+      '</div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:520px">'+
+        '<thead><tr><th>#</th><th>Bahan</th><th>Unit</th><th style="text-align:right">Qty</th><th style="text-align:right">Value</th></tr></thead>'+
+        '<tbody>'+rowsHtml+'</tbody>'+
+        '<tfoot><tr style="border-top:2px solid var(--brown-deep)"><td></td><td colspan="3" style="font-weight:700;color:var(--brown-deep)">TOTAL VALUE</td>'+
+          '<td style="text-align:right;font-weight:700;color:var(--brown-deep);font-size:15px">'+fmtRp(_SOV.total)+'</td></tr></tfoot>'+
+      '</table></div>';
+  }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>'; }
+}
+window.sovLoad=sovLoad;
+
+async function sovExport(){
+  if(!_SOV) return;
+  try{
+    await loadXlsxLib();
+    var ExcelJS=window.ExcelJS;
+    var thin={top:{style:'thin',color:{argb:'FFDDD3C4'}},left:{style:'thin',color:{argb:'FFDDD3C4'}},bottom:{style:'thin',color:{argb:'FFDDD3C4'}},right:{style:'thin',color:{argb:'FFDDD3C4'}}};
+    var wb=new ExcelJS.Workbook();
+    var ws=wb.addWorksheet('Value SO',{views:[{state:'frozen',ySplit:2}]});
+    var storeLbl=String(_SOV.store).replace('SOYASUKA_','SOYA SUKA ');
+    ws.mergeCells(1,1,1,5);
+    var t=ws.getCell(1,1);
+    t.value='Value Stock Opname — '+storeLbl+' · '+fmtDateShort(_SOV.date);
+    t.font={bold:true,size:13,color:{argb:'FFFFFFFF'}};
+    t.alignment={vertical:'middle',horizontal:'left'};
+    t.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF4A3727'}};
+    ws.getRow(1).height=24;
+    var hr=ws.getRow(2); ['No','Bahan','Unit','Qty','Value (Rp)'].forEach(function(h,i){
+      var cell=hr.getCell(i+1); cell.value=h; cell.font={bold:true,color:{argb:'FFFFFFFF'}};
+      cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF6F5842'}};
+      cell.alignment={horizontal:(i<=1?'left':(i===2?'left':'right'))}; cell.border=thin;
+    });
+    _SOV.items.forEach(function(it,i){
+      var r=ws.addRow([i+1,it.name,it.unit||'',Math.round((it.qty||0)*100)/100,Math.round(it.value||0)]);
+      r.eachCell(function(cell,col){ cell.border=thin; if(col>=4) cell.alignment={horizontal:'right'}; });
+      r.getCell(5).numFmt='#,##0';
+    });
+    var tr=ws.addRow(['','TOTAL VALUE','','',Math.round(_SOV.total||0)]);
+    ws.mergeCells(tr.number,2,tr.number,4);
+    tr.getCell(2).font={bold:true}; tr.getCell(2).alignment={horizontal:'left'};
+    tr.getCell(5).font={bold:true}; tr.getCell(5).numFmt='#,##0'; tr.getCell(5).alignment={horizontal:'right'};
+    tr.eachCell(function(cell){ cell.border=thin; });
+    ws.getColumn(1).width=6; ws.getColumn(2).width=34; ws.getColumn(3).width=12; ws.getColumn(4).width=12; ws.getColumn(5).width=16;
+    var buf=await wb.xlsx.writeBuffer();
+    var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='Value_SO_'+String(_SOV.store).replace('SOYASUKA_','')+'_'+_SOV.date+'.xlsx';
+    a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){ alert('❌ '+e.message); }
+}
+window.sovExport=sovExport;
+
 function openAbsPhoto(url){
   if(!url){alert('Foto tidak tersedia');return;}
   showPopup('Foto Absensi','<img src="'+driveImg(url)+'" style="max-width:100%;border-radius:10px">');
