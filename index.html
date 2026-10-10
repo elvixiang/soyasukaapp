@@ -4572,34 +4572,44 @@ function round1(n){ return Math.round((Number(n)||0)*10)/10; }
 // ---- engine (level rekonsiliasi = item ING MASTER) ----
 function veNorm(s){ return String(s||'').trim().toUpperCase(); }
 function veStrip(s){ var t=String(s||''); var m=t.search(/[^\x00-\x7F]/); if(m>0) t=t.slice(0,m); t=t.split(' - ')[0]; return t.trim().toUpperCase(); }
-function veBuildIdx(products){
-  var exact={},normMap={},collide={};
+// idx.alias: {INGREDIENT_NAME: RECIPE_TITLE} — override pencarian resep utk nama yg beda (mis. ORIGINAL SOYMILK→SOYMILK 豆浆)
+function veBuildIdx(products, aliasRows){
+  var exact={},normMap={},collide={},alias={};
   Object.keys(products||{}).forEach(function(k){
     exact[veNorm(k)]=products[k];
     var n=veStrip(k); if(n){ if(normMap[n]) collide[n]=1; else normMap[n]=products[k]; }
   });
-  return {exact:exact,normMap:normMap,collide:collide};
+  (aliasRows||[]).slice(1).forEach(function(r){ if(r[0]&&r[1]) alias[veNorm(r[0])]=veNorm(r[1]); });
+  return {exact:exact,normMap:normMap,collide:collide,alias:alias};
 }
-function veFind(idx,name){ var n=veNorm(name); if(idx.exact[n]) return idx.exact[n]; var s=veStrip(name); if(idx.normMap[s]&&!idx.collide[s]) return idx.normMap[s]; return null; }
-// pakai shape produk existing: {ingredients:[{name,qty}], yieldQty}
-function veExpand(idx,ING,rec,batches,need,guard,untr){
+function veFind(idx,name){
+  var n=veNorm(name);
+  if(idx.alias&&idx.alias[n]){ var an=idx.alias[n]; if(idx.exact[an]) return idx.exact[an]; var as=veStrip(an); if(idx.normMap[as]&&!idx.collide[as]) return idx.normMap[as]; }
+  if(idx.exact[n]) return idx.exact[n];
+  var s=veStrip(name); if(idx.normMap[s]&&!idx.collide[s]) return idx.normMap[s];
+  return null;
+}
+// STOP = set nama yg dihitung di Stock Opname (reconciliation ground truth).
+// Explode berhenti di item yg di-SO; selain itu lanjut turun ke resepnya.
+// shape produk existing: {ingredients:[{name,qty}], yieldQty}
+function veExpand(idx,STOP,rec,batches,need,guard,untr){
   (rec.ingredients||[]).forEach(function(it){
     var base=(Number(it.qty)||0)*batches, key=veNorm(it.name);
-    if(ING[key]){ need[key]=(need[key]||0)+base; return; }
+    if(STOP[key]){ need[key]=(need[key]||0)+base; return; }   // di-SO → berhenti di sini
     var sub=veFind(idx,it.name);
-    if(sub&&sub.yieldQty>0&&!guard[key]){ var g2={}; for(var x in guard)g2[x]=1; g2[key]=1; veExpand(idx,ING,sub,base/sub.yieldQty,need,g2,untr); }
-    else { need[key]=(need[key]||0)+base; if(untr) untr[key]=1; }
+    if(sub&&sub.yieldQty>0&&!guard[key]){ var g2={}; for(var x in guard)g2[x]=1; g2[key]=1; veExpand(idx,STOP,sub,base/sub.yieldQty,need,g2,untr); }
+    else { need[key]=(need[key]||0)+base; if(untr) untr[key]=1; }   // tak di-SO & tak ada resep → leaf
   });
 }
-function veCountMenu(idx,ING,recipeKey,qty,need,untr){
+function veCountMenu(idx,STOP,recipeKey,qty,need,untr){
   var rc=veFind(idx,recipeKey); if(!rc||!rc.yieldQty) return false;
-  veExpand(idx,ING,rc,(qty*1.0)/rc.yieldQty,need,{},untr); return true;
+  veExpand(idx,STOP,rc,(qty*1.0)/rc.yieldQty,need,{},untr); return true;
 }
-function veAddDirect(idx,ING,name,amount,need,untr){
+function veAddDirect(idx,STOP,name,amount,need,untr){
   var key=veNorm(name);
-  if(ING[key]){ need[key]=(need[key]||0)+amount; return; }
+  if(STOP[key]){ need[key]=(need[key]||0)+amount; return; }
   var rc=veFind(idx,name);
-  if(rc&&rc.yieldQty>0){ veExpand(idx,ING,rc,amount/rc.yieldQty,need,{},untr); }
+  if(rc&&rc.yieldQty>0){ veExpand(idx,STOP,rc,amount/rc.yieldQty,need,{},untr); }
   else { need[key]=(need[key]||0)+amount; if(untr) untr[key]=1; }
 }
 
@@ -4623,30 +4633,36 @@ async function parseESBFile(file){
   if(h<0) throw new Error('Header ESB tidak ketemu (butuh kolom "Menu Category" & "Qty"). Pastikan file benar.');
   var H={}; rows[h].forEach(function(x,i){ var k=String(x||'').trim(); if(k) H[k]=i; });
   function cell(r,n){ var i=H[n]; return i===undefined?'':r[i]; }
-  var agg={};  // key "det|menu|info" -> qty
+  var agg={};        // "det|menu|info" -> qty (utk teoritis resep)
+  var byCatMode={};  // det -> mode -> qty (utk packaging per channel)
+  var toteLines={};  // menu TOTEBAG -> qty (spunbond, dibaca langsung)
+  var modes={};      // daftar order mode yg muncul (utk info)
   for(var k2=h+1;k2<rows.length;k2++){
     var r=rows[k2]; if(!r||String(r[0]||'').trim()==='') continue;
     if(String(cell(r,'Sales Type')||'').trim()==='') continue;
     var det=String(cell(r,'Menu Category Detail')||'').trim();
     var menu=String(cell(r,'Menu')||'').trim();
     var info=String(cell(r,'Menu Info')||'').trim();
+    var mode=String(cell(r,'Order Mode')||'').trim();
     var q=Number(cell(r,'Qty'))||0; if(!menu) continue;
-    var key=det+'|'+menu+'|'+info; agg[key]=(agg[key]||0)+q;
+    agg[det+'|'+menu+'|'+info]=(agg[det+'|'+menu+'|'+info]||0)+q;
+    if(det==='TOTEBAG'){ toteLines[menu]=(toteLines[menu]||0)+q; }
+    else { (byCatMode[det]=byCatMode[det]||{})[mode]=((byCatMode[det]||{})[mode]||0)+q; }
+    if(mode) modes[mode]=(modes[mode]||0)+q;
   }
-  return {meta:meta,agg:agg};
+  return {meta:meta,agg:agg,byCatMode:byCatMode,toteLines:toteLines,modes:modes};
 }
 
-// ---- hitung teoritis dari agg + maps + resep ----
-function veTeoritis(agg, maps, products, ING){
-  var idx=veBuildIdx(products);
-  // maps → lookup
+// ---- hitung teoritis dari ESB + maps + resep. SO = set nama yg di-Stock-Opname (stop level) ----
+function veTeoritis(parsed, maps, products, SO){
+  var agg=parsed.agg||{};
+  var idx=veBuildIdx(products, maps.alias);
   function toMap(rows,kcol){ var m={}; (rows||[]).slice(1).forEach(function(r){ if(r[kcol]!==''&&r[kcol]!=null) m[veNorm(r[kcol])]=r; }); return m; }
   var MENU=toMap(maps.menu,0), TOP=toMap(maps.topping,0), SYR=toMap(maps.syrup,0);
   var cfg={}; (maps.config||[]).slice(1).forEach(function(r){ cfg[String(r[0]).trim()]=r[1]; });
   var TOPG=Number(cfg.topping_g)||30, SYRML=Number(cfg.syrup_ml)||50;
-  // set contains
+  var packModes={}; String(cfg.pack_modes||'GRAB,GOFOOD').split(',').forEach(function(m){ var x=veNorm(m); if(x) packModes[x]=1; });
   var setC={}; (maps.setContains||[]).slice(1).forEach(function(r){ var s=veNorm(r[0]); (setC[s]=setC[s]||[]).push(veNorm(r[1])); });
-  // agg → per-group
   var qMenu={},qTop={},qSyr={};
   Object.keys(agg).forEach(function(k){
     var p=k.split('|'),det=p[0],menu=p[1],q=agg[k];
@@ -4654,37 +4670,51 @@ function veTeoritis(agg, maps, products, ING){
     else if(det==='TOPPING') qTop[menu]=(qTop[menu]||0)+q;
     else if(det==='SYRUP') qSyr[menu]=(qSyr[menu]||0)+q;
   });
-  var need={},untr={},unmapped=[],brk={menus:[],toppings:[],syrups:[]};
+  var need={},untr={},unmapped=[],brk={menus:[],toppings:[],syrups:[],packaging:[]};
   var harmony=qMenu['SOYA SUKA HARMONY BOWL']||0, midnight=qMenu['MIDNIGHT TREASURE BOWL']||0;
-  // menus
   Object.keys(qMenu).forEach(function(menu){
     if(veNorm(menu)==='DESSERT BOWL') { brk.menus.push([menu,qMenu[menu],'(custom: base+residual)']); return; }
     var row=MENU[veNorm(menu)];
     if(!row||!row[1]){ unmapped.push('MENU: '+menu); return; }
-    var ok=veCountMenu(idx,ING,row[1],qMenu[menu],need,untr);
+    var ok=veCountMenu(idx,SO,row[1],qMenu[menu],need,untr);
     brk.menus.push([menu,qMenu[menu],ok?row[1]:'(resep tak ketemu)']); if(!ok) unmapped.push('MENU: '+menu+' → '+row[1]);
   });
-  // set-contained topping counts
   var setTop={};
   (setC['SET 1']||[]).forEach(function(t){ setTop[t]=(setTop[t]||0)+harmony; });
   (setC['SET 2']||[]).forEach(function(t){ setTop[t]=(setTop[t]||0)+midnight; });
-  // toppings residual
   Object.keys(qTop).forEach(function(tm){
     var row=TOP[veNorm(tm)]; if(!row){ unmapped.push('TOPPING: '+tm); return; }
     var ingKey=row[1], isSet=String(row[2]||'').trim().toUpperCase()==='Y';
     var line=qTop[tm]; var setUsed=setTop[veNorm(ingKey)]||0;
     var resid=isSet?Math.max(0,line-setUsed):line;
     brk.toppings.push([tm,line,isSet?setUsed:0,resid,ingKey]);
-    if(resid>0) veAddDirect(idx,ING,ingKey,resid*TOPG,need,untr);
+    if(resid>0) veAddDirect(idx,SO,ingKey,resid*TOPG,need,untr);
   });
-  // flavor syrups
   Object.keys(qSyr).forEach(function(sm){
     var row=SYR[veNorm(sm)]; if(!row){ unmapped.push('SYRUP: '+sm); return; }
     var kind=String(row[1]||'').trim().toLowerCase();
-    if(kind==='sugar'||kind==='skip'){ brk.syrups.push([sm,qSyr[sm],kind,'—']); return; } // liquid sugar sdh di resep minuman
+    if(kind==='sugar'||kind==='skip'){ brk.syrups.push([sm,qSyr[sm],kind,'—']); return; }
     var ml=Number(row[3])||SYRML;
     brk.syrups.push([sm,qSyr[sm],'syrup '+ml+'ml',row[2]]);
-    veAddDirect(idx,ING,row[2]||sm,qSyr[sm]*ml,need,untr);
+    veAddDirect(idx,SO,row[2]||sm,qSyr[sm]*ml,need,untr);
+  });
+  // ---- PACKAGING ----
+  // TOTE BAG → spunbond: dibaca LANGSUNG dari baris ESB (semua channel, bukan per mode)
+  var PACK=maps.packaging||[];
+  var toteMap={}; PACK.slice(1).forEach(function(r){ if(r[0]&&r[1]) toteMap[veNorm(r[0])]=[String(r[1]),Number(r[2])||1]; });
+  Object.keys(parsed.toteLines||{}).forEach(function(tm){
+    var m=toteMap[veNorm(tm)]; var line=parsed.toteLines[tm];
+    if(m){ veAddDirect(idx,SO,m[0],line*m[1],need,untr); brk.packaging.push([tm,line,'semua',m[0],line*m[1]]); }
+    else { brk.packaging.push([tm,line,'semua','(tak ter-map)',0]); }
+  });
+  // cup/bowl/straw per kategori × channel yg kena (pack_modes)
+  var bcm=parsed.byCatMode||{};
+  PACK.slice(1).forEach(function(r){
+    var trig=veNorm(r[0]); if(trig==='TOTE BAG'||trig==='TOTE BAG FREE') return;   // tote diproses di atas
+    var packIng=String(r[1]||''), per=Number(r[2])||1;
+    var modes=bcm[trig]; if(!modes) return;
+    var qty=0; Object.keys(modes).forEach(function(md){ if(packModes[veNorm(md)]) qty+=modes[md]; });
+    if(qty>0){ veAddDirect(idx,SO,packIng,qty*per,need,untr); brk.packaging.push([trig,qty,'pack-modes',packIng,qty*per]); }
   });
   return {need:need,untracked:Object.keys(untr),unmapped:unmapped,breakdown:brk};
 }
@@ -4698,6 +4728,7 @@ async function renderVariance(c){
     '<input type="date" id="vr-to" value="'+today+'" max="'+today+'"></div>'+
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.55">'+
       'Upload file <b>ESB Sales Menu Recapitulation</b> (.xlsx) untuk toko & rentang ini. Sistem bandingkan pemakaian stok (SO + inbound − transfer) vs pemakaian teoritis dari penjualan.<br>'+
+      'Inbound dibaca dari sheet <b>INBOUND</b> (bisa kamu edit langsung — qty & tanggal barang sampai) + <b>MANUAL_INBOUND</b>.<br>'+
       '<span style="color:var(--orange)">Tips: export ESB <b>per-branch</b> (bukan "All") dan samakan tanggalnya dengan periode SO.</span></div>'+
     '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">'+
       '<input type="file" id="vr-file" accept=".xlsx" style="font-family:inherit;font-size:13px">'+
@@ -4716,10 +4747,10 @@ async function esbProcess(){
     var parsed=await parseESBFile(fin.files[0]);
     var r=await api({action:'getVarianceESB',token:S.token,store:S.store,from:from,to:to});
     if(!r.ok){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div style="max-width:440px;margin:0 auto;line-height:1.6">'+r.error+'</div></div>'; return; }
-    // ING set + products
-    var ING={}; (((S.baseData||{}).ingMaster)||[]).slice(1).forEach(function(row){ var nm=String(row[0]||'').trim(); if(nm) ING[veNorm(nm)]=true; });
+    // STOP level = nama yg di-Stock-Opname (dari baris SO backend). Explode berhenti di sini.
+    var SO={}; (r.items||[]).forEach(function(it){ if(it.name) SO[veNorm(it.name)]=true; });
     var products=buildRecipeIndex(((S.baseData||{}).cogsCalc)||[]);
-    var teo=veTeoritis(parsed.agg, r.maps, products, ING);
+    var teo=veTeoritis(parsed, r.maps, products, SO);
     VARE={from:from,to:to,parsed:parsed,be:r,teo:teo};
     renderVarResult();
   }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div style="max-width:440px;margin:0 auto">'+(e.message||e)+'</div></div>'; }
@@ -4735,9 +4766,12 @@ function veStatus(pct,teoritis,wastage,aktual){
 function renderVarResult(){
   var box=document.getElementById('vr-content'); if(!box||!VARE) return;
   var be=VARE.be, teo=VARE.teo; var isRp=canSeeNominal();
-  // price per unit from ingMaster
-  var priceMap={}; (((S.baseData||{}).ingMaster)||[]).slice(1).forEach(function(row){ var nm=veNorm(row[0]); var fp=Number(row[2])||0,pr=Number(row[4])||0; priceMap[nm]=(fp>0&&pr>0)?pr/fp:0; });
-  // reconcile per SO item
+  var priceMap={}, catMap={};
+  (((S.baseData||{}).ingMaster)||[]).slice(1).forEach(function(row){
+    var nm=veNorm(row[0]); if(!nm) return;
+    var fp=Number(row[2])||0,pr=Number(row[4])||0; priceMap[nm]=(fp>0&&pr>0)?pr/fp:0;
+    var cat=String(row[1]||'').trim(); if(cat) catMap[nm]=cat;    // kolom B ING MASTER = CATEGORY
+  });
   var rows=[], totalRp=0;
   var needLeft={}; Object.keys(teo.need).forEach(function(k){ needLeft[k]=teo.need[k]; });
   be.items.forEach(function(it){
@@ -4747,50 +4781,118 @@ function renderVarResult(){
     var wastage=it.waste||0;
     var selisih=aktual-teoritis-wastage;
     var denom=teoritis+wastage; var pct=denom>0?(selisih/denom*100):null;
-    if(!(teoritis>0||wastage>0||Math.abs(aktual)>0.01||it.transfer>0)) return; // skip benar2 kosong
+    if(!(teoritis>0||wastage>0||Math.abs(aktual)>0.01||it.transfer>0)) return;
     var rp=selisih*(priceMap[key]||0); totalRp+=rp;
     var st=veStatus(pct,teoritis,wastage,aktual);
-    rows.push({name:it.name,unit:it.unit,soAwal:it.soAwal,soAkhir:it.soAkhir,masuk:it.masuk,transfer:it.transfer||0,
+    rows.push({name:it.name,unit:it.unit,cat:catMap[key]||'(tanpa kategori)',soAwal:it.soAwal,soAkhir:it.soAkhir,masuk:it.masuk,transfer:it.transfer||0,
       aktual:aktual,teoritis:teoritis,wastage:wastage,selisih:selisih,pct:pct,rp:rp,st:st[0],stc:st[1],inMaster:it.inMaster});
   });
-  rows.sort(function(a,b){ return Math.abs(b.rp)-Math.abs(a.rp); });
-  VARE.rows=rows; VARE.totalRp=totalRp;
-  // teoritis tanpa baris SO
+  VARE.rows=rows; VARE.totalRp=totalRp; VARE.isRp=isRp;
   var noSO=Object.keys(needLeft).filter(function(k){ return needLeft[k]>0.5; }).map(function(k){ return k+' ('+round1(needLeft[k])+')'; });
+  VARE.noSO=noSO;
 
-  function num(n){ return round1(n).toLocaleString('id-ID'); }
   var warnHtml=(be.warnings&&be.warnings.length)?'<div style="font-size:12px;color:var(--orange);background:#FDF1E7;border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.5">⚠ '+be.warnings.join('<br>⚠ ')+'</div>':'';
-  // branch/period warning
   var pm=VARE.parsed.meta; var metaW='';
-  if(pm.branch && pm.branch.toLowerCase().indexOf('all')>=0) metaW+='<br>⚠ File ESB Branch = "'+pm.branch+'" — pastikan export per-branch toko ini.';
-  if(pm.period) metaW+='<br>Periode file ESB: <b>'+pm.period+'</b> · Window SO: <b>'+be.soAwalDate+' → '+be.soAkhirDate+'</b>';
-  if(metaW) warnHtml+='<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.5">'+metaW+'</div>';
+  if(pm.branch && pm.branch.toLowerCase().indexOf('all')>=0) metaW+='⚠ File ESB Branch = "'+pm.branch+'" — pastikan export per-branch toko ini.<br>';
+  if(pm.period) metaW+='Periode file ESB: <b>'+pm.period+'</b> · Window SO: <b>'+be.soAwalDate+' → '+be.soAkhirDate+'</b>';
+  if(metaW) warnHtml+='<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.5">'+metaW+'</div>';
+
+  // ── Definisi kolom ──
+  var defHtml='<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--brown-deep)">ℹ️ Arti kolom &amp; status</summary>'+
+    '<div style="font-size:12px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:6px;line-height:1.65">'+
+    '<b>Aktual</b> = SO awal + Masuk − Transfer − SO akhir → yang benar-benar terpakai dari stok fisik.<br>'+
+    '<b>Teoritis</b> = pemakaian seharusnya dari penjualan ESB (resep × porsi terjual).<br>'+
+    '<b>Wastage</b> = tercatat terbuang (dihitung terpisah; transfer "kirim" tidak masuk sini).<br>'+
+    '<b>Selisih</b> = Aktual − Teoritis − Wastage. <b>%</b> = Selisih ÷ (Teoritis + Wastage).<br>'+
+    '<span style="color:var(--red)"><b>Over</b></span> (&gt; +15%) = pemakaian lebih banyak dari seharusnya → boros / kemungkinan shrinkage.<br>'+
+    '<span style="color:var(--orange)"><b>Under</b></span> (&lt; −15%) = pemakaian lebih sedikit → <b>kemungkinan inbound/transfer belum tercatat</b> (bukan "hemat").<br>'+
+    '<span style="color:var(--green)"><b>Normal</b></span> = dalam ±15%.</div></details>';
+
+  // ── Kontrol filter & sort ──
+  var cats=['(semua kategori)']; var seen={};
+  rows.forEach(function(r){ if(!seen[r.cat]){ seen[r.cat]=1; cats.push(r.cat); } });
+  var ctrl='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">'+
+    '<select id="vr-sort" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
+      '<option value="rp">Urut: '+(isRp?'Rp terbesar':'Selisih terbesar')+'</option>'+
+      '<option value="sel">Urut: Selisih (abs)</option>'+
+      '<option value="pct">Urut: % (abs)</option>'+
+      '<option value="cat">Urut: Kategori</option>'+
+      '<option value="nama">Urut: Nama</option>'+
+      '<option value="waste">Urut: Wastage</option></select>'+
+    '<select id="vr-fstatus" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
+      '<option value="">Status: semua</option><option value="Over">Over</option><option value="Under">Under</option><option value="Normal">Normal</option></select>'+
+    '<select id="vr-fcat" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
+      cats.map(function(c){ return '<option value="'+(c==='(semua kategori)'?'':c.replace(/"/g,'&quot;'))+'">'+c+'</option>'; }).join('')+'</select>'+
+    '<label style="display:flex;align-items:center;gap:4px;color:var(--brown-soft)">min |%| <input type="number" id="vr-fpct" value="0" min="0" oninput="vrPaint()" style="width:60px;font-family:inherit;padding:5px;border:1.5px solid var(--line);border-radius:7px"></label>'+
+    '<label style="display:flex;align-items:center;gap:4px;color:var(--brown-soft)"><input type="checkbox" id="vr-fwaste" onchange="vrPaint()"> ada wastage</label>'+
+  '</div>';
 
   var head='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div class="sec" style="margin:0">📊 Rekonsiliasi Bahan</div>'+
     '<button class="ftab" style="padding:6px 14px" onclick="exportVarESB()">⬇ Export Excel</button></div>';
   if(isRp) head+='<div class="tbox" style="margin-bottom:10px"><div class="tl">Total Selisih (Rp)</div><div class="tv" style="color:'+(totalRp>0?'var(--red)':'var(--green)')+'">Rp '+Math.round(totalRp).toLocaleString('id-ID')+'</div></div>';
 
-  var th='<tr><th>Bahan</th><th>SO awal</th><th>Masuk</th><th>Transfer</th><th>SO akhir</th><th>Aktual</th><th>Teoritis</th><th>Wastage</th><th>Selisih</th><th>%</th>'+(isRp?'<th>Rp</th>':'')+'<th>Status</th></tr>';
+  var panels=vrPanels();
+  box.innerHTML=warnHtml+defHtml+head+ctrl+'<div id="vr-tbl"></div>'+panels;
+  vrPaint();
+}
+window.renderVarResult=renderVarResult;
+
+function vrNum(n){ return round1(n).toLocaleString('id-ID'); }
+function vrPaint(){
+  var holder=document.getElementById('vr-tbl'); if(!holder||!VARE||!VARE.rows) return;
+  var isRp=VARE.isRp;
+  var sortBy=(document.getElementById('vr-sort')||{}).value||'rp';
+  var fStatus=(document.getElementById('vr-fstatus')||{}).value||'';
+  var fCat=(document.getElementById('vr-fcat')||{}).value||'';
+  var fPct=Number((document.getElementById('vr-fpct')||{}).value)||0;
+  var fWaste=(document.getElementById('vr-fwaste')||{}).checked||false;
+  var rows=VARE.rows.filter(function(r){
+    if(fStatus && r.st!==fStatus) return false;
+    if(fCat && r.cat!==fCat) return false;
+    if(fPct>0 && (r.pct==null||Math.abs(r.pct)<fPct)) return false;
+    if(fWaste && !(r.wastage>0)) return false;
+    return true;
+  });
+  rows.sort(function(a,b){
+    if(sortBy==='sel') return Math.abs(b.selisih)-Math.abs(a.selisih);
+    if(sortBy==='pct') return (Math.abs(b.pct||0))-(Math.abs(a.pct||0));
+    if(sortBy==='cat') return a.cat<b.cat?-1:a.cat>b.cat?1:Math.abs(b.rp)-Math.abs(a.rp);
+    if(sortBy==='nama') return a.name<b.name?-1:1;
+    if(sortBy==='waste') return (b.wastage||0)-(a.wastage||0);
+    return Math.abs(b.rp)-Math.abs(a.rp);  // default rp (atau selisih kalau tanpa Rp)
+  });
+  var showCat=(sortBy==='cat');
+  var th='<tr><th>Bahan</th>'+(showCat?'<th>Kategori</th>':'')+'<th>SO awal</th><th>Masuk</th><th>Transfer</th><th>SO akhir</th><th>Aktual</th><th>Teoritis</th><th>Wastage</th><th>Selisih</th><th>%</th>'+(isRp?'<th>Rp</th>':'')+'<th>Status</th></tr>';
   var body=rows.map(function(k){
     return '<tr>'+
       '<td style="font-weight:600">'+k.name+(k.inMaster?'':' <span style="color:var(--orange)" title="tidak ada di ING MASTER">⚠</span>')+'<div style="font-size:10px;color:var(--brown-soft)">'+k.unit+'</div></td>'+
-      '<td style="text-align:right">'+num(k.soAwal)+'</td><td style="text-align:right">'+num(k.masuk)+'</td>'+
-      '<td style="text-align:right">'+(k.transfer?num(k.transfer):'–')+'</td><td style="text-align:right">'+num(k.soAkhir)+'</td>'+
-      '<td style="text-align:right;font-weight:600">'+num(k.aktual)+'</td><td style="text-align:right">'+num(k.teoritis)+'</td>'+
-      '<td style="text-align:right">'+(k.wastage?num(k.wastage):'–')+'</td>'+
-      '<td style="text-align:right;font-weight:700;color:'+k.stc+'">'+(k.selisih>0?'+':'')+num(k.selisih)+'</td>'+
+      (showCat?'<td style="font-size:11px;color:var(--brown-soft)">'+k.cat+'</td>':'')+
+      '<td style="text-align:right">'+vrNum(k.soAwal)+'</td><td style="text-align:right">'+vrNum(k.masuk)+'</td>'+
+      '<td style="text-align:right">'+(k.transfer?vrNum(k.transfer):'–')+'</td><td style="text-align:right">'+vrNum(k.soAkhir)+'</td>'+
+      '<td style="text-align:right;font-weight:600">'+vrNum(k.aktual)+'</td><td style="text-align:right">'+vrNum(k.teoritis)+'</td>'+
+      '<td style="text-align:right">'+(k.wastage?vrNum(k.wastage):'–')+'</td>'+
+      '<td style="text-align:right;font-weight:700;color:'+k.stc+'">'+(k.selisih>0?'+':'')+vrNum(k.selisih)+'</td>'+
       '<td style="text-align:right;color:'+k.stc+'">'+(k.pct==null?'–':(k.pct>0?'+':'')+k.pct.toFixed(0)+'%')+'</td>'+
       (isRp?'<td style="text-align:right">'+(k.rp?Math.round(k.rp).toLocaleString('id-ID'):'–')+'</td>':'')+
       '<td style="text-align:center;color:'+k.stc+';font-weight:600;font-size:11px">'+k.st+'</td></tr>';
   }).join('');
-  var tbl='<div class="so-tbl-wrap"><table class="so-tbl" style="font-size:12px"><thead>'+th+'</thead><tbody>'+body+'</tbody></table></div>';
+  holder.innerHTML='<div style="font-size:11.5px;color:var(--brown-soft);margin-bottom:4px">'+rows.length+' bahan</div>'+
+    '<div class="so-tbl-wrap"><table class="so-tbl" style="font-size:12px"><thead>'+th+'</thead><tbody>'+body+'</tbody></table></div>';
+}
+window.vrPaint=vrPaint;
 
-  // panels
-  var panels='';
+function vrPanels(){
+  var be=VARE.be, teo=VARE.teo, num=vrNum, panels='';
   var miss=veDetectors(VARE);
   if(miss.length){
     panels+='<div class="sec" style="margin-top:18px">🚩 Miss Pencatatan ('+miss.length+')</div><div style="display:flex;flex-direction:column;gap:7px">'+
       miss.map(function(m){ return '<div style="font-size:12.5px;background:#FDF1E7;border-left:3px solid var(--orange);border-radius:6px;padding:8px 11px;line-height:1.5"><b>'+m.t+'</b> — '+m.d+'</div>'; }).join('')+'</div>';
+  }
+  var pk=(teo.breakdown&&teo.breakdown.packaging)||[];
+  if(pk.length){
+    panels+='<div class="sec" style="margin-top:18px">📦 Packaging</div><div style="font-size:12px;color:var(--brown-soft);line-height:1.65">'+
+      pk.map(function(p){ return '• '+p[0]+' ('+num(p[1])+' '+(p[2]==='semua'?'semua channel':'channel ter-pack')+') → '+p[3]+(p[4]?' '+num(p[4]):''); }).join('<br>')+
+      '<div style="margin-top:6px;color:var(--orange)">Catatan: file ESB ini tidak memisah dine-in/takeaway (offline = "POS Lite"). Paper cup/bowl/straw dihitung hanya untuk channel di <b>pack_modes</b> (default Grab+GoFood). TOTE BAG dibaca langsung dari ESB.</div></div>';
   }
   if(be.transferRows&&be.transferRows.length){
     panels+='<div class="sec" style="margin-top:18px">🚚 Transfer (bukan wastage)</div><div style="font-size:12.5px;color:var(--brown-soft);line-height:1.6">'+
@@ -4799,15 +4901,15 @@ function renderVarResult(){
   if(teo.unmapped.length){
     panels+='<div class="sec" style="margin-top:18px">❓ Menu/Add-on Belum Ter-map ('+teo.unmapped.length+')</div><div style="font-size:12px;color:var(--orange);line-height:1.6">'+teo.unmapped.join('<br>')+'<div style="color:var(--brown-soft);margin-top:6px">Tambahkan di sheet VAR_MENU_MAP / VAR_TOPPING_MAP / VAR_SYRUP_MAP.</div></div>';
   }
-  if(noSO.length){
-    panels+='<div class="sec" style="margin-top:18px">📎 Teoritis tanpa baris SO</div><div style="font-size:12px;color:var(--brown-soft);line-height:1.6">Bahan ini dibutuhkan resep tapi tak ada di STOCK_OPNAME (tak bisa direkonsiliasi):<br>'+noSO.join(' · ')+'</div>';
+  if(VARE.noSO&&VARE.noSO.length){
+    panels+='<div class="sec" style="margin-top:18px">📎 Teoritis tanpa baris SO</div><div style="font-size:12px;color:var(--brown-soft);line-height:1.6">Bahan ini dibutuhkan resep tapi tak ada di STOCK_OPNAME (tak bisa direkonsiliasi):<br>'+VARE.noSO.join(' · ')+'</div>';
   }
   if(teo.untracked.length){
-    panels+='<div style="font-size:11.5px;color:var(--brown-soft);margin-top:14px">Catatan: bahan tanpa resep & tak ada di ING MASTER (diabaikan): '+teo.untracked.join(', ')+'</div>';
+    panels+='<div style="font-size:11.5px;color:var(--brown-soft);margin-top:14px">Catatan: bahan tanpa resep &amp; tak dikenal (diabaikan): '+teo.untracked.join(', ')+'</div>';
   }
-  box.innerHTML=warnHtml+head+tbl+panels;
+  return panels;
 }
-window.renderVarResult=renderVarResult;
+window.vrPanels=vrPanels;
 
 // ---- detektor Miss Pencatatan (v1) ----
 function veDetectors(V){
@@ -4843,9 +4945,9 @@ async function exportVarESB(){
     await loadXlsxLib(); var ExcelJS=window.ExcelJS; var wb=new ExcelJS.Workbook();
     var ws=wb.addWorksheet('Variance'); var isRp=canSeeNominal();
     ws.addRow(['Variance ESB — '+S.store.replace('SOYASUKA_','')+' · '+VARE.be.soAwalDate+' → '+VARE.be.soAkhirDate]);
-    var hdr=['Bahan','Unit','SO awal','Masuk','Transfer','SO akhir','Aktual','Teoritis','Wastage','Selisih','%']; if(isRp) hdr.push('Rp'); hdr.push('Status');
+    var hdr=['Bahan','Kategori','Unit','SO awal','Masuk','Transfer','SO akhir','Aktual','Teoritis','Wastage','Selisih','%']; if(isRp) hdr.push('Rp'); hdr.push('Status');
     var hr=ws.addRow(hdr); hr.font={bold:true}; hr.eachCell(function(c){ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF4A3727'}}; c.font={bold:true,color:{argb:'FFFFFFFF'}}; });
-    VARE.rows.forEach(function(k){ var row=[k.name,k.unit,round1(k.soAwal),round1(k.masuk),round1(k.transfer),round1(k.soAkhir),round1(k.aktual),round1(k.teoritis),round1(k.wastage),round1(k.selisih),(k.pct==null?'':Math.round(k.pct))]; if(isRp) row.push(Math.round(k.rp)); row.push(k.st); ws.addRow(row); });
+    VARE.rows.forEach(function(k){ var row=[k.name,k.cat||'',k.unit,round1(k.soAwal),round1(k.masuk),round1(k.transfer),round1(k.soAkhir),round1(k.aktual),round1(k.teoritis),round1(k.wastage),round1(k.selisih),(k.pct==null?'':Math.round(k.pct))]; if(isRp) row.push(Math.round(k.rp)); row.push(k.st); ws.addRow(row); });
     ws.columns.forEach(function(c){ c.width=14; }); ws.getColumn(1).width=28;
     var buf=await wb.xlsx.writeBuffer(); var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='variance_'+S.store.replace('SOYASUKA_','')+'_'+VARE.be.soAkhirDate+'.xlsx'; a.click();
@@ -5091,6 +5193,7 @@ function openInbound(i){
 
   showPopup('📥 Inbound — '+po.order_id,
     '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:12px;line-height:1.55">Cek jumlah barang yang <b>benar-benar sampai</b>. Kolom <b>Dikirim</b> = jumlah yang dikirim admin (angka <span style="color:var(--orange)">oranye</span> = admin merevisi dari pesananmu). Kolom <b>Diterima</b> sudah terisi ikut Dikirim — ubah kalau ada yang beda.</div>'+
+    '<div class="fg" style="margin-bottom:12px"><label>Tanggal barang sampai di toko</label><input class="fi2" type="date" id="ib-date" value="'+S.today+'" max="'+S.today+'"></div>'+
     '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bahan</th><th style="text-align:center">Dipesan</th><th style="text-align:center">Dikirim</th><th style="text-align:center">Diterima</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<button class="save-btn" style="width:100%;margin-top:14px;background:var(--green)" onclick="submitInbound('+i+')">✓ Confirm Inbound</button>'+
     '<div id="ib-msg" class="save-msg"></div>', true);
@@ -5116,7 +5219,8 @@ async function submitInbound(i){
   var btn=document.querySelector('#popup-body .save-btn');
   if(btn){btn.disabled=true;btn.textContent='Menyimpan...';}
   try{
-    var r=await api({action:'confirmInbound',token:S.token,store:S.store,order_id:po.order_id,received:JSON.stringify(received)});
+    var arrival=(document.getElementById('ib-date')||{}).value||S.today;
+    var r=await api({action:'confirmInbound',token:S.token,store:S.store,order_id:po.order_id,received:JSON.stringify(received),arrival_date:arrival});
     if(r&&r.ok){
       if(msg){msg.textContent='✅ Barang diterima. Order selesai.';msg.className='save-msg ok';}
       setTimeout(function(){ closePopup(); navigateTo('order-history'); },800);
