@@ -4592,24 +4592,28 @@ function veFind(idx,name){
 // STOP = set nama yg dihitung di Stock Opname (reconciliation ground truth).
 // Explode berhenti di item yg di-SO; selain itu lanjut turun ke resepnya.
 // shape produk existing: {ingredients:[{name,qty}], yieldQty}
-function veExpand(idx,STOP,rec,batches,need,guard,untr){
+// wip (opsional): akumulasi qty semi-jadi yg dilewati explode (mis. Daifuku Skin, Soymilk) — utk panel info.
+function veExpand(idx,STOP,rec,batches,need,guard,untr,wip){
   (rec.ingredients||[]).forEach(function(it){
     var base=(Number(it.qty)||0)*batches, key=veNorm(it.name);
     if(STOP[key]){ need[key]=(need[key]||0)+base; return; }   // di-SO → berhenti di sini
     var sub=veFind(idx,it.name);
-    if(sub&&sub.yieldQty>0&&!guard[key]){ var g2={}; for(var x in guard)g2[x]=1; g2[key]=1; veExpand(idx,STOP,sub,base/sub.yieldQty,need,g2,untr); }
+    if(sub&&sub.yieldQty>0&&!guard[key]){
+      if(wip){ wip[key]=(wip[key]||0)+base; }                 // semi-jadi yg dilewati (qty dlm satuan hasilnya)
+      var g2={}; for(var x in guard)g2[x]=1; g2[key]=1; veExpand(idx,STOP,sub,base/sub.yieldQty,need,g2,untr,wip);
+    }
     else { need[key]=(need[key]||0)+base; if(untr) untr[key]=1; }   // tak di-SO & tak ada resep → leaf
   });
 }
-function veCountMenu(idx,STOP,recipeKey,qty,need,untr){
+function veCountMenu(idx,STOP,recipeKey,qty,need,untr,wip){
   var rc=veFind(idx,recipeKey); if(!rc||!rc.yieldQty) return false;
-  veExpand(idx,STOP,rc,(qty*1.0)/rc.yieldQty,need,{},untr); return true;
+  veExpand(idx,STOP,rc,(qty*1.0)/rc.yieldQty,need,{},untr,wip); return true;
 }
-function veAddDirect(idx,STOP,name,amount,need,untr){
+function veAddDirect(idx,STOP,name,amount,need,untr,wip){
   var key=veNorm(name);
   if(STOP[key]){ need[key]=(need[key]||0)+amount; return; }
   var rc=veFind(idx,name);
-  if(rc&&rc.yieldQty>0){ veExpand(idx,STOP,rc,amount/rc.yieldQty,need,{},untr); }
+  if(rc&&rc.yieldQty>0){ if(wip){ wip[key]=(wip[key]||0)+amount; } veExpand(idx,STOP,rc,amount/rc.yieldQty,need,{},untr,wip); }
   else { need[key]=(need[key]||0)+amount; if(untr) untr[key]=1; }
 }
 
@@ -4658,26 +4662,34 @@ function veTeoritis(parsed, maps, products, SO){
   var agg=parsed.agg||{};
   var idx=veBuildIdx(products, maps.alias);
   function toMap(rows,kcol){ var m={}; (rows||[]).slice(1).forEach(function(r){ if(r[kcol]!==''&&r[kcol]!=null) m[veNorm(r[kcol])]=r; }); return m; }
-  var MENU=toMap(maps.menu,0), TOP=toMap(maps.topping,0), SYR=toMap(maps.syrup,0);
+  var MENU=toMap(maps.menu,0), TOP=toMap(maps.topping,0), SYR=toMap(maps.syrup,0), DIR=toMap(maps.direct,0);
   var cfg={}; (maps.config||[]).slice(1).forEach(function(r){ cfg[String(r[0]).trim()]=r[1]; });
   var TOPG=Number(cfg.topping_g)||30, SYRML=Number(cfg.syrup_ml)||50;
   var packModes={}; String(cfg.pack_modes||'GRAB,GOFOOD').split(',').forEach(function(m){ var x=veNorm(m); if(x) packModes[x]=1; });
   var setC={}; (maps.setContains||[]).slice(1).forEach(function(r){ var s=veNorm(r[0]); (setC[s]=setC[s]||[]).push(veNorm(r[1])); });
-  var qMenu={},qTop={},qSyr={};
+  var qMenu={},qTop={},qSyr={},qAll={};
   Object.keys(agg).forEach(function(k){
     var p=k.split('|'),det=p[0],menu=p[1],q=agg[k];
+    qAll[veNorm(menu)]=(qAll[veNorm(menu)]||0)+q;
     if(['SET','DRINK','DESSERT','DB'].indexOf(det)>=0) qMenu[menu]=(qMenu[menu]||0)+q;
     else if(det==='TOPPING') qTop[menu]=(qTop[menu]||0)+q;
     else if(det==='SYRUP') qSyr[menu]=(qSyr[menu]||0)+q;
   });
-  var need={},untr={},unmapped=[],brk={menus:[],toppings:[],syrups:[],packaging:[]};
+  var need={},untr={},wip={},unmapped=[],brk={menus:[],toppings:[],syrups:[],packaging:[],direct:[]};
   var harmony=qMenu['SOYA SUKA HARMONY BOWL']||0, midnight=qMenu['MIDNIGHT TREASURE BOWL']||0;
   Object.keys(qMenu).forEach(function(menu){
     if(veNorm(menu)==='DESSERT BOWL') { brk.menus.push([menu,qMenu[menu],'(custom: base+residual)']); return; }
     var row=MENU[veNorm(menu)];
     if(!row||!row[1]){ unmapped.push('MENU: '+menu); return; }
-    var ok=veCountMenu(idx,SO,row[1],qMenu[menu],need,untr);
+    var ok=veCountMenu(idx,SO,row[1],qMenu[menu],need,untr,wip);
     brk.menus.push([menu,qMenu[menu],ok?row[1]:'(resep tak ketemu)']); if(!ok) unmapped.push('MENU: '+menu+' → '+row[1]);
+  });
+  // ---- DIRECT (mis. Mineral Water → Air Mineral), dicari di SEMUA kategori ----
+  Object.keys(DIR).forEach(function(mk){
+    var row=DIR[mk]; var q=qAll[mk]||0; if(q<=0) return;
+    var per=Number(row[2])||1;
+    veAddDirect(idx,SO,row[1],q*per,need,untr,wip);
+    brk.direct.push([row[0],q,row[1],q*per]);
   });
   var setTop={};
   (setC['SET 1']||[]).forEach(function(t){ setTop[t]=(setTop[t]||0)+harmony; });
@@ -4688,7 +4700,7 @@ function veTeoritis(parsed, maps, products, SO){
     var line=qTop[tm]; var setUsed=setTop[veNorm(ingKey)]||0;
     var resid=isSet?Math.max(0,line-setUsed):line;
     brk.toppings.push([tm,line,isSet?setUsed:0,resid,ingKey]);
-    if(resid>0) veAddDirect(idx,SO,ingKey,resid*TOPG,need,untr);
+    if(resid>0) veAddDirect(idx,SO,ingKey,resid*TOPG,need,untr,wip);
   });
   Object.keys(qSyr).forEach(function(sm){
     var row=SYR[veNorm(sm)]; if(!row){ unmapped.push('SYRUP: '+sm); return; }
@@ -4696,7 +4708,7 @@ function veTeoritis(parsed, maps, products, SO){
     if(kind==='sugar'||kind==='skip'){ brk.syrups.push([sm,qSyr[sm],kind,'—']); return; }
     var ml=Number(row[3])||SYRML;
     brk.syrups.push([sm,qSyr[sm],'syrup '+ml+'ml',row[2]]);
-    veAddDirect(idx,SO,row[2]||sm,qSyr[sm]*ml,need,untr);
+    veAddDirect(idx,SO,row[2]||sm,qSyr[sm]*ml,need,untr,wip);
   });
   // ---- PACKAGING ----
   // TOTE BAG → spunbond: dibaca LANGSUNG dari baris ESB (semua channel, bukan per mode)
@@ -4714,9 +4726,9 @@ function veTeoritis(parsed, maps, products, SO){
     var packIng=String(r[1]||''), per=Number(r[2])||1;
     var modes=bcm[trig]; if(!modes) return;
     var qty=0; Object.keys(modes).forEach(function(md){ if(packModes[veNorm(md)]) qty+=modes[md]; });
-    if(qty>0){ veAddDirect(idx,SO,packIng,qty*per,need,untr); brk.packaging.push([trig,qty,'pack-modes',packIng,qty*per]); }
+    if(qty>0){ veAddDirect(idx,SO,packIng,qty*per,need,untr,wip); brk.packaging.push([trig,qty,'pack-modes',packIng,qty*per]); }
   });
-  return {need:need,untracked:Object.keys(untr),unmapped:unmapped,breakdown:brk};
+  return {need:need,untracked:Object.keys(untr),wip:wip,unmapped:unmapped,breakdown:brk,idx:idx,SO:SO,menuMap:MENU,qMenu:qMenu};
 }
 
 async function renderVariance(c){
@@ -4751,7 +4763,7 @@ async function esbProcess(){
     var SO={}; (r.items||[]).forEach(function(it){ if(it.name) SO[veNorm(it.name)]=true; });
     var products=buildRecipeIndex(((S.baseData||{}).cogsCalc)||[]);
     var teo=veTeoritis(parsed, r.maps, products, SO);
-    VARE={from:from,to:to,parsed:parsed,be:r,teo:teo};
+    VARE={from:from,to:to,parsed:parsed,be:r,teo:teo,products:products};
     renderVarResult();
   }catch(e){ box.innerHTML='<div class="empty"><div class="ei">❌</div><div style="max-width:440px;margin:0 auto">'+(e.message||e)+'</div></div>'; }
 }
@@ -4809,9 +4821,11 @@ function renderVarResult(){
     '<span style="color:var(--green)"><b>Normal</b></span> = dalam ±15%.</div></details>';
 
   // ── Kontrol filter & sort ──
-  var cats=['(semua kategori)']; var seen={};
+  var cats=[]; var seen={};
   rows.forEach(function(r){ if(!seen[r.cat]){ seen[r.cat]=1; cats.push(r.cat); } });
-  var ctrl='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">'+
+  cats.sort();
+  var catChips=cats.map(function(c){ return '<label style="display:inline-flex;align-items:center;gap:4px;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:3px 10px;cursor:pointer;font-size:11.5px"><input type="checkbox" class="vr-catchk" value="'+c.replace(/"/g,'&quot;')+'" onchange="vrPaint()">'+c+'</label>'; }).join(' ');
+  var ctrl='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:12px">'+
     '<select id="vr-sort" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
       '<option value="rp">Urut: '+(isRp?'Rp terbesar':'Selisih terbesar')+'</option>'+
       '<option value="sel">Urut: Selisih (abs)</option>'+
@@ -4821,18 +4835,24 @@ function renderVarResult(){
       '<option value="waste">Urut: Wastage</option></select>'+
     '<select id="vr-fstatus" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
       '<option value="">Status: semua</option><option value="Over">Over</option><option value="Under">Under</option><option value="Normal">Normal</option></select>'+
-    '<select id="vr-fcat" onchange="vrPaint()" style="font-family:inherit;font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px">'+
-      cats.map(function(c){ return '<option value="'+(c==='(semua kategori)'?'':c.replace(/"/g,'&quot;'))+'">'+c+'</option>'; }).join('')+'</select>'+
     '<label style="display:flex;align-items:center;gap:4px;color:var(--brown-soft)">min |%| <input type="number" id="vr-fpct" value="0" min="0" oninput="vrPaint()" style="width:60px;font-family:inherit;padding:5px;border:1.5px solid var(--line);border-radius:7px"></label>'+
     '<label style="display:flex;align-items:center;gap:4px;color:var(--brown-soft)"><input type="checkbox" id="vr-fwaste" onchange="vrPaint()"> ada wastage</label>'+
-  '</div>';
+  '</div>'+
+  (cats.length?('<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px"><span style="font-size:11.5px;color:var(--brown-soft)">Kategori:</span> '+catChips+' <button class="ftab" style="padding:3px 10px;font-size:11px" onclick="vrClearCat()">reset</button></div>'):'');
 
   var head='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div class="sec" style="margin:0">📊 Rekonsiliasi Bahan</div>'+
     '<button class="ftab" style="padding:6px 14px" onclick="exportVarESB()">⬇ Export Excel</button></div>';
   if(isRp) head+='<div class="tbox" style="margin-bottom:10px"><div class="tl">Total Selisih (Rp)</div><div class="tv" style="color:'+(totalRp>0?'var(--red)':'var(--green)')+'">Rp '+Math.round(totalRp).toLocaleString('id-ID')+'</div></div>';
 
+  // ── Menu explorer ──
+  var menus=Object.keys((teo.qMenu)||{}).sort();
+  var explorer='<details style="margin-top:18px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--brown-deep)">🔎 Lihat bahan per menu</summary>'+
+    '<div style="margin-top:8px"><select id="vr-menu" onchange="vrMenuExplore()" style="font-family:inherit;font-size:12.5px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;max-width:100%">'+
+      '<option value="">— pilih menu —</option>'+menus.map(function(m){ return '<option value="'+m.replace(/"/g,'&quot;')+'">'+m+' ('+vrNum(teo.qMenu[m])+')</option>'; }).join('')+
+    '</select><div id="vr-menu-out"></div></div></details>';
+
   var panels=vrPanels();
-  box.innerHTML=warnHtml+defHtml+head+ctrl+'<div id="vr-tbl"></div>'+panels;
+  box.innerHTML=warnHtml+defHtml+head+ctrl+'<div id="vr-tbl"></div>'+explorer+panels;
   vrPaint();
 }
 window.renderVarResult=renderVarResult;
@@ -4843,12 +4863,13 @@ function vrPaint(){
   var isRp=VARE.isRp;
   var sortBy=(document.getElementById('vr-sort')||{}).value||'rp';
   var fStatus=(document.getElementById('vr-fstatus')||{}).value||'';
-  var fCat=(document.getElementById('vr-fcat')||{}).value||'';
+  var catSel={}; var anyCat=false;
+  document.querySelectorAll('.vr-catchk').forEach(function(ch){ if(ch.checked){ catSel[ch.value]=1; anyCat=true; } });
   var fPct=Number((document.getElementById('vr-fpct')||{}).value)||0;
   var fWaste=(document.getElementById('vr-fwaste')||{}).checked||false;
   var rows=VARE.rows.filter(function(r){
     if(fStatus && r.st!==fStatus) return false;
-    if(fCat && r.cat!==fCat) return false;
+    if(anyCat && !catSel[r.cat]) return false;
     if(fPct>0 && (r.pct==null||Math.abs(r.pct)<fPct)) return false;
     if(fWaste && !(r.wastage>0)) return false;
     return true;
@@ -4880,6 +4901,35 @@ function vrPaint(){
     '<div class="so-tbl-wrap"><table class="so-tbl" style="font-size:12px"><thead>'+th+'</thead><tbody>'+body+'</tbody></table></div>';
 }
 window.vrPaint=vrPaint;
+function vrClearCat(){ document.querySelectorAll('.vr-catchk').forEach(function(ch){ ch.checked=false; }); vrPaint(); }
+window.vrClearCat=vrClearCat;
+
+// ── Menu Explorer: pilih menu → tampilkan bahan (resep 1 level) ──
+function vrMenuExplore(){
+  var sel=document.getElementById('vr-menu'); var out=document.getElementById('vr-menu-out');
+  if(!sel||!out||!VARE) return;
+  var menu=sel.value; if(!menu){ out.innerHTML=''; return; }
+  var qty=(VARE.teo.qMenu&&VARE.teo.qMenu[menu])||0;
+  var row=VARE.teo.menuMap[veNorm(menu)];
+  var recipeKey=row?row[1]:'';
+  var rc=recipeKey?veFind(VARE.teo.idx,recipeKey):null;
+  if(!rc||!rc.yieldQty){ out.innerHTML='<div style="font-size:12px;color:var(--orange)">Resep tidak ketemu untuk "'+menu+'"'+(recipeKey?(' ('+recipeKey+')'):'')+'. Cek VAR_MENU_MAP.</div>'; return; }
+  var SO=VARE.teo.SO;
+  // bahan 1 level (per 1 porsi) + total utk qty terjual
+  var perBatch=1/rc.yieldQty; // batch per 1 porsi (serving=1)
+  var lines=(rc.ingredients||[]).map(function(it){
+    var per=(Number(it.qty)||0)*perBatch;         // per 1 porsi
+    var tot=per*qty;                               // utk qty terjual
+    var key=veNorm(it.name);
+    var isSO=!!SO[key]; var sub=veFind(VARE.teo.idx,it.name);
+    var tag=isSO?'<span style="color:var(--green);font-size:10px">di-SO</span>':(sub&&sub.yieldQty>0?'<span style="color:var(--gold);font-size:10px">semi-jadi</span>':'<span style="color:var(--brown-soft);font-size:10px">—</span>');
+    return '<tr><td style="font-weight:600">'+it.name+'</td><td style="text-align:right">'+vrNum(per)+'</td><td style="text-align:right;font-weight:600">'+vrNum(tot)+'</td><td style="text-align:center">'+tag+'</td></tr>';
+  }).join('');
+  out.innerHTML='<div style="font-size:12px;color:var(--brown-soft);margin:8px 0 6px">Resep <b>'+recipeKey+'</b> · terjual <b>'+vrNum(qty)+'</b> porsi · bahan 1 level:</div>'+
+    '<div class="so-tbl-wrap"><table class="so-tbl" style="font-size:12px"><thead><tr><th>Bahan</th><th>/porsi</th><th>total</th><th>level</th></tr></thead><tbody>'+lines+'</tbody></table></div>'+
+    '<div style="font-size:11px;color:var(--brown-soft);margin-top:6px">"semi-jadi" (mis. Daifuku Skin) di rekonsiliasi utama di-explode lagi sampai bahan yang di-SO.</div>';
+}
+window.vrMenuExplore=vrMenuExplore;
 
 function vrPanels(){
   var be=VARE.be, teo=VARE.teo, num=vrNum, panels='';
@@ -4887,6 +4937,15 @@ function vrPanels(){
   if(miss.length){
     panels+='<div class="sec" style="margin-top:18px">🚩 Miss Pencatatan ('+miss.length+')</div><div style="display:flex;flex-direction:column;gap:7px">'+
       miss.map(function(m){ return '<div style="font-size:12.5px;background:#FDF1E7;border-left:3px solid var(--orange);border-radius:6px;padding:8px 11px;line-height:1.5"><b>'+m.t+'</b> — '+m.d+'</div>'; }).join('')+'</div>';
+  }
+  // WIP / semi-jadi dibutuhkan (info; tidak direkonsiliasi krn tak di-SO)
+  var wip=teo.wip||{};
+  var wipKeys=Object.keys(wip).filter(function(k){ return wip[k]>0.5 && !(teo.SO&&teo.SO[k]); });
+  if(wipKeys.length){
+    wipKeys.sort(function(a,b){ return wip[b]-wip[a]; });
+    panels+='<div class="sec" style="margin-top:18px">🧱 WIP / Semi-jadi Dibutuhkan</div>'+
+      '<div style="font-size:12px;color:var(--brown-soft);line-height:1.6">Perkiraan jumlah semi-jadi yang perlu diproduksi dari penjualan (Daifuku Skin, Soymilk, dll). Tidak direkonsiliasi karena tidak di-Stock-Opname — pemakaiannya sudah "turun" ke bahan mentahnya di tabel atas.<br>'+
+      wipKeys.map(function(k){ return '• '+k+' ≈ <b>'+num(wip[k])+'</b>'; }).join('<br>')+'</div>';
   }
   var pk=(teo.breakdown&&teo.breakdown.packaging)||[];
   if(pk.length){
