@@ -786,6 +786,7 @@ var NAV_DEFS = {
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'checklist-view',ico:'✅',lbl:'Status Checklist',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
+    {id:'warehouse-out',ico:'📦',lbl:'Barang Keluar WH',sec:''},
     {id:'order-history',ico:'📜',lbl:'Riwayat Order',sec:''},
     {id:'payslip',ico:'🧾',lbl:'Generate Payslip',sec:'HR'},
     {id:'payslip-history',ico:'📄',lbl:'Riwayat Payslip',sec:'HR'},
@@ -803,6 +804,7 @@ var NAV_DEFS = {
     {id:'perf-overview',ico:'📊',lbl:'Overview Performa',sec:'Monitoring'},
     {id:'wastage-view',ico:'🗑️',lbl:'Wastage',sec:''},
     {id:'incoming-po',ico:'📥',lbl:'Incoming PO',sec:''},
+    {id:'warehouse-out',ico:'📦',lbl:'Barang Keluar WH',sec:''},
     {id:'variance',ico:'🔍',lbl:'Variance Stok',sec:'Analitik'},
   ],
   HR:[
@@ -845,7 +847,7 @@ function buildNav(){
 function navigateTo(id){
   if(!canTab(id)){ id='dashboard'; }
   document.querySelectorAll('.ni').forEach(function(el){el.classList.toggle('active',el.dataset.id===id);});
-  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip','payslip-history':'Riwayat Payslip','so-value':'Cek Value SO'};
+  var titles={dashboard:'Dashboard','report-sales':'Report Sales','checklist-opening':'Checklist Opening','checklist-closing':'Checklist Closing',wastage:'Wastage',so:'Stock Opname',menu:'Menu',resep:'Resep',forecasting:'Kalkulator Prep',absensi:'Absensi','cek-absensi':'Cek Absensi','overtime-rekap':'Rekap Overtime','izin-approval':'Persetujuan','perf-overview':'Overview Performa','wastage-view':'Wastage','checklist-view':'Status Checklist',cogs:'COGS Overview',laporan:'Laporan',laporanView:'Laporan Masuk','laporan-view':'Laporan Masuk','survey':'Survey',order:'Order','incoming-po':'Incoming PO','warehouse-out':'Barang Keluar Warehouse','order-history':'Riwayat Order',variance:'Variance Stok','manual-inbound':'Inbound Manual','payslip':'Generate Payslip','payslip-history':'Riwayat Payslip','so-value':'Cek Value SO'};
   document.getElementById('tb-title').textContent=titles[id]||id;
   renderPage(id);
 }
@@ -928,6 +930,7 @@ async function renderPage(id){
     case 'cogs': renderCogs(c); break;
     case 'order': renderOrder(c); break;
     case 'incoming-po': renderIncomingPO(c); break;
+    case 'warehouse-out': renderWarehouseOut(c); break;
     case 'order-history': await renderOrderHistory(c); break;
     case 'manual-inbound': await renderManualInbound(c); break;
     case 'variance': await renderVariance(c); break;
@@ -4174,17 +4177,63 @@ window.submitSurveyAnswer=submitSurveyAnswer;
 
 // ========================= ORDER / PURCHASE ORDER =========================
 var ORDER_ITEMS=[];
+var ORDER_ALL=[];        // semua item orderable (semua channel)
+var ORDER_CHANNEL='SUPPLIER';
+var ORDER_CH_DEFS=[['SUPPLIER','🚚 Supplier'],['CK','🏭 Central Kitchen'],['WH','📦 Warehouse']];
 async function renderOrder(c){
   if(!ensureStore(c)) return;
   c.innerHTML=LOADING;
   var sd=await loadStoreData(S.store);
-  var list=(sd&&sd.orderList)||[];
-  if(!list.length){
-    c.innerHTML='<div class="empty"><div class="ei">🛒</div><div>Belum ada bahan yang bisa diorder (kolom CAN ORDER = CAN di ING MASTER)</div></div>';
+  ORDER_ALL=(sd&&sd.orderList)||[];
+  if(!ORDER_ALL.length){
+    c.innerHTML='<div class="empty"><div class="ei">🛒</div><div>Belum ada bahan yang bisa diorder (isi kolom CAN ORDER di ING MASTER: CAN=supplier, CK=central kitchen, WH=warehouse)</div></div>';
     return;
   }
-  ORDER_ITEMS=list;
-  var rows=list.map(function(it,i){
+  // channel yg benar-benar ada itemnya
+  var avail={}; ORDER_ALL.forEach(function(it){ avail[it.channel||'SUPPLIER']=1; });
+  if(!avail[ORDER_CHANNEL]){ ORDER_CHANNEL=(ORDER_CH_DEFS.filter(function(d){return avail[d[0]];})[0]||['SUPPLIER'])[0]; }
+  var chTabs=ORDER_CH_DEFS.filter(function(d){ return avail[d[0]]; }).map(function(d){
+    var on=d[0]===ORDER_CHANNEL;
+    return '<button class="no-guard" onclick="setOrderChannel(\''+d[0]+'\')" style="flex:none;padding:7px 14px;border-radius:9px;border:1.5px solid '+(on?'var(--gold)':'var(--line)')+';background:'+(on?'var(--gold)':'var(--surface)')+';color:'+(on?'#fff':'var(--brown-soft)')+';font-family:inherit;font-size:12.5px;font-weight:'+(on?'700':'500')+';cursor:pointer">'+d[1]+'</button>';
+  }).join(' ');
+  var chNote={SUPPLIER:'Order ke supplier luar — diproses admin store.',CK:'Order ke Central Kitchen — diproses & dibuat surat jalan di webapp CK, invoice oleh finance CK.',WH:'Ambil barang dari warehouse — diproses admin (barang keluar warehouse).'};
+  c.innerHTML='<div class="card">'+
+    '<div class="card-title">🛒 Buat Order</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px">'+chTabs+'</div>'+
+    '<div id="order-chnote" style="font-size:12px;color:var(--brown-soft);margin-bottom:10px">'+(chNote[ORDER_CHANNEL]||'')+'</div>'+
+    '<div class="form-grid">'+
+      '<div class="fg"><label>Tanggal</label><input class="fi2" value="'+fmtDate(S.today)+'" readonly></div>'+
+      '<div class="fg"><label>Toko</label><input class="fi2" value="'+S.store.replace('SOYASUKA_','')+'" readonly></div>'+
+    '</div>'+
+    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin:12px 0">Isi jumlah <b>pack</b> yang ingin dipesan. Item yang dikosongkan tidak masuk order.</div>'+
+    '<div style="display:flex;gap:6px;align-items:center;margin:12px 0 10px">'+
+      '<input type="text" id="order-search" placeholder="🔍 Cari bahan..." oninput="filterOrder()" style="flex:1;min-width:0;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:9px;padding:9px 12px;outline:none">'+
+      '<button id="order-search-clear" class="no-guard" onclick="clearOrderSearch()" style="display:none;flex:none;width:34px;height:36px;border:1.5px solid var(--line);background:var(--surface);border-radius:9px;color:var(--brown-soft);cursor:pointer;font-size:14px">✕</button>'+
+    '</div>'+
+    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" id="order-tbl" style="min-width:560px">'+
+      '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Terakhir Order</th><th>Order (pack)</th></tr></thead>'+
+      '<tbody id="order-tbody"></tbody></table></div>'+
+    '<div id="order-manual-wrap">'+
+      '<div class="sec" style="margin-top:22px">🧾 Barang Lain (non-inbound)</div>'+
+      '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.55">Barang di luar bahan baku yang <b>tidak masuk stok/inbound</b> (plastik wrap, plastik sampah, dll). Tulis nama, qty, satuan.</div>'+
+      '<div id="manual-rows"></div>'+
+      '<button class="ftab no-guard" style="padding:7px 14px;border-style:dashed" onclick="addManualRow()">+ Tambah Barang</button>'+
+    '</div>'+
+    '<div class="row-actions" style="justify-content:space-between;margin-top:16px">'+
+      '<button class="save-btn" onclick="submitOrder()">Submit Order</button>'+
+      '<span id="po-total" style="font-size:13px;color:var(--brown-soft)">0 item dipilih</span>'+
+    '</div>'+
+    '<div id="po-msg" class="save-msg"></div>'+
+  '</div>';
+  orderBuildTable();
+  addManualRow();
+  loadLastOrdered();
+}
+function setOrderChannel(ch){ ORDER_CHANNEL=ch; renderOrder(document.getElementById('content')); }
+window.setOrderChannel=setOrderChannel;
+function orderBuildTable(){
+  ORDER_ITEMS=ORDER_ALL.filter(function(it){ return (it.channel||'SUPPLIER')===ORDER_CHANNEL; });
+  var rows=ORDER_ITEMS.map(function(it,i){
     var pack=(it.fullPax!==''&&it.fullPax!==null?Number(it.fullPax).toLocaleString('id-ID'):'')+' '+(it.unit||'');
     return '<tr class="ord-row" data-nm="'+String(it.name).toLowerCase().replace(/"/g,'&quot;')+'"><td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
       '<td style="font-weight:600">'+it.name+'</td>'+
@@ -4192,33 +4241,11 @@ async function renderOrder(c){
       '<td class="po-last" data-name="'+String(it.name).replace(/"/g,'&quot;')+'" style="font-size:11.5px;color:var(--brown-soft);white-space:nowrap">…</td>'+
       '<td><input type="number" min="0" placeholder="0" id="po-qty-'+i+'" oninput="calcOrderTotal()"></td></tr>';
   }).join('');
-  c.innerHTML='<div class="card">'+
-    '<div class="card-title">🛒 Buat Purchase Order</div>'+
-    '<div class="form-grid">'+
-      '<div class="fg"><label>Tanggal</label><input class="fi2" value="'+fmtDate(S.today)+'" readonly></div>'+
-      '<div class="fg"><label>Toko</label><input class="fi2" value="'+S.store.replace('SOYASUKA_','')+'" readonly></div>'+
-    '</div>'+
-    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin:12px 0">Isi jumlah <b>pack</b> yang ingin dipesan. Item yang dikosongkan tidak masuk PO.</div>'+
-    '<div style="display:flex;gap:6px;align-items:center;margin:12px 0 10px">'+
-      '<input type="text" id="order-search" placeholder="🔍 Cari bahan..." oninput="filterOrder()" style="flex:1;min-width:0;font-family:inherit;font-size:13px;color:var(--brown-deep);background:var(--cream);border:1.5px solid var(--line);border-radius:9px;padding:9px 12px;outline:none">'+
-      '<button id="order-search-clear" class="no-guard" onclick="clearOrderSearch()" style="display:none;flex:none;width:34px;height:36px;border:1.5px solid var(--line);background:var(--surface);border-radius:9px;color:var(--brown-soft);cursor:pointer;font-size:14px">✕</button>'+
-    '</div>'+
-    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" id="order-tbl" style="min-width:560px">'+
-      '<thead><tr><th>#</th><th>Nama Bahan</th><th>Isi / Pack</th><th>Terakhir Order</th><th>Order (pack)</th></tr></thead>'+
-      '<tbody id="order-tbody">'+rows+'<tr id="order-nomatch" style="display:none"><td colspan="5" style="text-align:center;color:var(--brown-soft);padding:14px">Tidak ada bahan yang cocok</td></tr></tbody></table></div>'+
-    '<div class="sec" style="margin-top:22px">🧾 Barang Lain (non-inbound)</div>'+
-    '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;line-height:1.55">Barang di luar bahan baku yang <b>tidak masuk stok/inbound</b> (plastik wrap, plastik sampah, dll). Tulis nama, qty, satuan. Klik <b>+ Tambah Barang</b> untuk baris lain.</div>'+
-    '<div id="manual-rows"></div>'+
-    '<button class="ftab no-guard" style="padding:7px 14px;border-style:dashed" onclick="addManualRow()">+ Tambah Barang</button>'+
-    '<div class="row-actions" style="justify-content:space-between;margin-top:16px">'+
-      '<button class="save-btn" onclick="submitOrder()">Submit Order</button>'+
-      '<span id="po-total" style="font-size:13px;color:var(--brown-soft)">0 item dipilih</span>'+
-    '</div>'+
-    '<div id="po-msg" class="save-msg"></div>'+
-  '</div>';
-  addManualRow();       // satu baris kosong sbg awalan
-  loadLastOrdered();
+  var tb=document.getElementById('order-tbody');
+  if(tb) tb.innerHTML=rows+'<tr id="order-nomatch" style="display:none"><td colspan="5" style="text-align:center;color:var(--brown-soft);padding:14px">Tidak ada bahan yang cocok</td></tr>';
+  calcOrderTotal();
 }
+window.orderBuildTable=orderBuildTable;
 
 // ---- Barang manual / non-inbound: baris dinamis nama+qty+satuan ----
 var _mrowSeq=0;
@@ -4303,7 +4330,7 @@ async function submitOrder(){
   if(!items.length && !manualItems.length){ if(msg){msg.textContent='❌ Isi minimal 1 item';msg.className='save-msg err';} return; }
   var btn=document.querySelector('#content .save-btn'); if(btn){btn.disabled=true;btn.textContent='Mengirim...';}
   try{
-    var r=await api({action:'savePO',token:S.token,store:S.store,date:S.today,items:JSON.stringify(items),manual_items:JSON.stringify(manualItems)});
+    var r=await api({action:'savePO',token:S.token,store:S.store,date:S.today,channel:ORDER_CHANNEL,items:JSON.stringify(items),manual_items:JSON.stringify(manualItems)});
     if(r.ok){
       if(msg){msg.textContent='✅ Order terkirim! Order ID: '+r.order_id;msg.className='save-msg ok';}
       ORDER_ITEMS.forEach(function(it,i){ var el=document.getElementById('po-qty-'+i); if(el) el.value=''; });
@@ -4314,6 +4341,41 @@ async function submitOrder(){
   if(btn){btn.disabled=false;btn.textContent='Submit Order';}
 }
 window.submitOrder=submitOrder;
+
+// ========================= WAREHOUSE OUT (Owner/Admin/Finance) =========================
+var WHO_LIST=[];
+async function renderWarehouseOut(c){
+  if(['Owner','Admin'].indexOf(S.user.role)<0){c.innerHTML='<div class="empty"><div class="ei">🔒</div><div>Tidak punya akses</div></div>';return;}
+  c.innerHTML=LOADING;
+  try{
+    if(!S.baseData) await loadBaseData();
+    var r=await api({action:'getPOList',token:S.token,channel:'WH'});
+    if(!r.ok){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+r.error+'</div></div>';return;}
+    WHO_LIST=r.data||[];
+    if(!WHO_LIST.length){c.innerHTML='<div class="empty"><div class="ei">📦</div><div>Belum ada order dari warehouse</div></div>';return;}
+    c.innerHTML='<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:14px;line-height:1.5">📦 <b>Barang keluar warehouse</b> — order dari store dengan channel Warehouse (kolom G = WH). <b>Keluar</b> = qty dikirim warehouse (DO). Proses & buat DO lewat tombol ⚙ sama seperti PO supplier.</div>'+
+      '<div class="tbl-wrap" style="overflow-x:auto"><table class="tbl" style="min-width:820px"><thead><tr><th>Order ID</th><th>Store</th><th>Tanggal</th><th>Status</th><th>No. DO</th><th>Item keluar</th><th>Aksi</th></tr></thead><tbody>'+
+      WHO_LIST.map(function(po,i){
+        var st=po.status||'Baru';
+        var badge=st==='Selesai'?'<span class="tag green">Diterima</span>':st==='Diproses'?'<span class="tag blue">Keluar (DO)</span>':'<span class="tag gold">Baru</span>';
+        var outCount=(po.sentItems&&po.sentItems.length)?po.sentItems.filter(function(it){return Number(it.sent)>0;}).length:0;
+        var act=st==='Baru'
+          ? '<button class="ftab" style="padding:5px 12px;background:var(--brown-deep);border-color:var(--brown-deep);color:#fff" onclick="whoProcess('+i+')">⚙ Proses</button>'
+          : '<button class="ftab" style="padding:5px 10px;border-color:var(--blue);color:var(--blue)" onclick="whoDO('+i+')">⬇ DO</button>';
+        return '<tr><td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
+          '<td>'+String(po.store).replace('SOYASUKA_','')+'</td>'+
+          '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
+          '<td>'+badge+'</td><td style="font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
+          '<td style="text-align:center">'+(st==='Baru'?po.items.length+' diminta':outCount+' keluar')+'</td>'+
+          '<td>'+act+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
+}
+window.renderWarehouseOut=renderWarehouseOut;
+// Proses & DO warehouse pakai mesin yg sama dgn incoming PO (PO_LIST).
+function whoProcess(i){ var po=WHO_LIST[i]; if(!po)return; PO_LIST=WHO_LIST; openProcess(i); }
+function whoDO(i){ var po=WHO_LIST[i]; if(!po)return; PO_LIST=WHO_LIST; downloadDO(i); }
+window.whoProcess=whoProcess; window.whoDO=whoDO;
 
 // ========================= INCOMING PO (Owner/Admin) =========================
 var PO_LIST=[];
@@ -4352,7 +4414,7 @@ async function renderIncomingPO(c){
         }
         var est=estimatePO(po);
         return '<tr data-key="'+key+'"'+(po.read?'':' style="background:#FFFBF2"')+'>'+
-          '<td style="font-weight:600;white-space:nowrap">'+po.order_id+(po.read?'':' <span style="color:var(--red);font-size:9px;vertical-align:super">●</span>')+'</td>'+
+          '<td style="font-weight:600;white-space:nowrap">'+po.order_id+(po.read?'':' <span style="color:var(--red);font-size:9px;vertical-align:super">●</span>')+'<div style="margin-top:2px">'+ohChannelTag(po.channel)+'</div></td>'+
           '<td>'+String(po.store).replace('SOYASUKA_','')+'</td>'+
           '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
           '<td>'+po.display_name+'</td>'+
@@ -5129,6 +5191,13 @@ async function renderOrderHistory(c){
   }catch(e){c.innerHTML='<div class="empty"><div class="ei">❌</div><div>'+e.message+'</div></div>';}
 }
 window.renderOrderHistory=renderOrderHistory;
+function ohChannelTag(ch){
+  ch=String(ch||'SUPPLIER').toUpperCase();
+  if(ch==='CK') return '<span style="font-size:10px;font-weight:700;color:#fff;background:#C99A4E;border-radius:6px;padding:1px 6px">CK</span>';
+  if(ch==='WH') return '<span style="font-size:10px;font-weight:700;color:#fff;background:#6b7a3a;border-radius:6px;padding:1px 6px">Warehouse</span>';
+  return '<span style="font-size:10px;font-weight:600;color:var(--brown-soft);background:var(--surface2);border-radius:6px;padding:1px 6px">Supplier</span>';
+}
+window.ohChannelTag=ohChannelTag;
 
 function ohRender(){
   var month=(document.getElementById('oh-month')||{}).value||OH_MONTH; OH_MONTH=month;
@@ -5148,11 +5217,13 @@ function ohRender(){
     var nomCell='';
     if(showNom){ var est=estimatePO(po); totNom+=est.total; if(est.missing)anyMissing=true;
       nomCell='<td style="text-align:right;white-space:nowrap"><button class="ftab" style="padding:5px 10px;font-weight:700'+(est.missing?';border-color:var(--orange);color:var(--orange)':'')+'" onclick="ohEstimasi('+i+')">'+rupiah(est.total)+(est.missing?' ⚠':'')+'</button></td>'; }
+    var chTag=ohChannelTag(po.channel);
+    var invTag=(po.invoice_no)?'<div style="font-size:10px;color:var(--green);font-weight:700;margin-top:2px">📄 Invoice '+po.invoice_no+'</div>':'';
     return '<tr>'+
-      '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'</td>'+
+      '<td style="font-weight:600;white-space:nowrap">'+po.order_id+'<div style="margin-top:2px">'+chTag+'</div></td>'+
       '<td style="white-space:nowrap">'+fmtDateShort(po.date)+'</td>'+
       '<td style="text-align:center">'+(po.items.length+((po.manualItems&&po.manualItems.length)||0))+'</td>'+
-      '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+'</td>'+
+      '<td style="white-space:nowrap">'+badge+(revised?'<div style="font-size:10px;color:var(--orange);font-weight:700;margin-top:2px">'+revised+' item direvisi</div>':'')+invTag+'</td>'+
       '<td style="white-space:nowrap;font-size:12px;color:var(--brown-soft)">'+(po.do_id||'–')+'</td>'+
       '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'+
         '<button class="ftab" style="padding:5px 12px" onclick="openOrderDetail('+i+')">👁 Lihat</button>'+
@@ -5199,6 +5270,9 @@ function openOrderDetail(i){
           'Diproses oleh '+(po.processed_by||'-')+' · '+(po.processed_at||'-');
     if(st==='Selesai') info+='<br>✓ Diterima oleh '+(po.completed_by||'-')+(po.inbound_date?' pada '+fmtDateShort(po.inbound_date):'')+' · '+(po.completed_at||'-');
   }
+  info+='<br>Channel: '+ohChannelTag(po.channel);
+  if(po.invoice_no) info+='<br>📄 Invoice <b>'+po.invoice_no+'</b>'+(po.invoice_date?' · '+fmtDateShort(po.invoice_date):'')+(po.invoice_by?' · oleh '+po.invoice_by:'');
+  else if(String(po.channel||'').toUpperCase()==='CK') info+='<br><span style="color:var(--brown-soft)">Invoice belum dibuat CK</span>';
   info+='</div>';
 
   var head=diproses
