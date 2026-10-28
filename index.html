@@ -2022,9 +2022,59 @@ async function renderSO(c){
   // Data SO yang sudah tersimpan hari ini → {nama: qty}
   var saved={}; var hasData=false;
   ((sd&&sd.soToday)||[]).forEach(function(row){ saved[String(row[1]).trim()]=row[3]; hasData=true; });
-  window._soSaved=saved; window._soLocked=hasData; // kalau sudah ada data → mulai terkunci
-  renderSOTable(soItems);
+  window._soTodaySaved=saved; window._soSaved=saved; window._soLocked=hasData; // kalau sudah ada data → mulai terkunci
+  window._soViewDate=S.today;
+  soRenderView();
 }
+// Date picker SO (dipakai di view edit & read-only). max = hari ini.
+function soDatePickerHtml(){
+  return '<div class="form-grid"><div class="fg"><label>Tanggal SO</label>'+
+    '<input class="fi2" type="date" id="so-date" value="'+(window._soViewDate||S.today)+'" max="'+S.today+'" onchange="soDateChange(this.value)"></div></div>';
+}
+async function soDateChange(date){
+  if(!date){ return; }
+  window._soViewDate=date;
+  if(date===S.today){ window._soSaved=window._soTodaySaved||{}; soRenderView(); return; }
+  // tanggal lampau → ambil dari server (read-only)
+  var c=document.getElementById('content'); if(c) c.innerHTML=LOADING;
+  try{
+    var r=await api({action:'getSOByDate',token:S.token,store:S.store,date:date});
+    window._soPastSaved=(r&&r.ok&&r.saved)||{};
+  }catch(e){ window._soPastSaved={}; }
+  soRenderView();
+}
+window.soDateChange=soDateChange;
+function soRenderView(){
+  if((window._soViewDate||S.today)===S.today){ renderSOTable(SO_ITEMS); }
+  else { renderSOReadonly(); }
+}
+window.soRenderView=soRenderView;
+// Tampilan SO tanggal lampau — hanya lihat, tidak bisa edit.
+function renderSOReadonly(){
+  var c=document.getElementById('content'); if(!c) return;
+  var saved=window._soPastSaved||{};
+  var keys=Object.keys(saved);
+  var rowsHtml=SO_ITEMS.map(function(it,i){
+    var val=saved[it.name.trim()];
+    var has=(val!==undefined&&val!==''&&val!==null);
+    return '<tr'+(has?'':' style="opacity:.45"')+'>'+
+      '<td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
+      '<td style="font-weight:600">'+it.name+'</td>'+
+      '<td style="text-align:right;font-weight:700;white-space:nowrap">'+(has?Number(val).toLocaleString('id-ID')+' '+(it.unit||''):'<span style="color:var(--line);font-weight:400">tidak di-opname</span>')+'</td>'+
+    '</tr>';
+  }).join('');
+  var note=keys.length
+    ? '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">👁 SO tanggal <b>'+fmtDateShort(window._soViewDate)+'</b> — hanya bisa dilihat. Untuk mengubah, pilih tanggal hari ini.</div>'
+    : '<div style="font-size:12.5px;color:var(--orange);background:#FDF1E7;border-radius:8px;padding:9px 12px;margin-bottom:12px">Tidak ada Stock Opname di tanggal '+fmtDateShort(window._soViewDate)+'.</div>';
+  c.innerHTML='<div class="card">'+
+    '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
+    soDatePickerHtml()+
+    '<div style="margin-top:12px">'+note+'</div>'+
+    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:420px">'+
+    '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:right">Qty Tersimpan</th></tr></thead>'+
+    '<tbody>'+rowsHtml+'</tbody></table></div></div>';
+}
+window.renderSOReadonly=renderSOReadonly;
 
 function renderSOTable(soItems){
   var c=document.getElementById('content');
@@ -2062,7 +2112,7 @@ function renderSOTable(soItems){
     : '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.55"><b>Pack</b> = bungkus utuh · <b>Ceceran</b> = sisa lepasan (satuan dasar) · <b>Total</b> dihitung otomatis = pack×isi + ceceran. Lalu klik Simpan.</div>';
   c.innerHTML='<div class="card">'+
   '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
-  '<div class="form-grid"><div class="fg"><label>Tanggal SO</label><input class="fi2" type="date" value="'+S.today+'" readonly></div></div>'+
+  soDatePickerHtml()+
   '<div style="margin-top:12px">'+statusNote+'</div>'+
   '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" id="so-tbl" style="min-width:540px">'+
   '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:center">Pack</th><th style="text-align:center">Ceceran</th><th style="text-align:right">Total</th></tr></thead>'+
