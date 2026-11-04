@@ -2057,21 +2057,39 @@ function renderSOReadonly(){
   var rowsHtml=SO_ITEMS.map(function(it,i){
     var val=saved[it.name.trim()];
     var has=(val!==undefined&&val!==''&&val!==null);
-    return '<tr'+(has?'':' style="opacity:.45"')+'>'+
+    var fp=Number(it.fullPax)||0, unit=it.unit||'';
+    var paxHint = fp>0
+      ? '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">'+fp.toLocaleString('id-ID')+' '+unit+' / pack</div>'
+      : '<div style="font-size:11px;color:var(--brown-soft);font-weight:400">tanpa pack</div>';
+    // Rekonstruksi pack & ceceran dari total: pack = total ÷ isi/pack, sisanya ceceran.
+    var packCell='—', looseCell='', totCell='';
+    if(has){
+      var q=Number(val)||0;
+      if(fp>0){ var pack=Math.floor(q/fp); var loose=Math.round((q-pack*fp)*1000)/1000;
+        packCell=pack.toLocaleString('id-ID'); looseCell=loose.toLocaleString('id-ID'); }
+      else { packCell='—'; looseCell=q.toLocaleString('id-ID'); }
+      totCell='<b>'+q.toLocaleString('id-ID')+' '+unit+'</b>';
+    } else {
+      packCell='<span style="color:var(--line)">—</span>'; looseCell='<span style="color:var(--line)">—</span>';
+      totCell='<span style="color:var(--line);font-weight:400">tidak di-opname</span>';
+    }
+    return '<tr'+(has?'':' style="opacity:.5"')+'>'+
       '<td style="color:var(--brown-soft);font-size:12px">'+(i+1)+'</td>'+
-      '<td style="font-weight:600">'+it.name+'</td>'+
-      '<td style="text-align:right;font-weight:700;white-space:nowrap">'+(has?Number(val).toLocaleString('id-ID')+' '+(it.unit||''):'<span style="color:var(--line);font-weight:400">tidak di-opname</span>')+'</td>'+
+      '<td style="font-weight:600">'+it.name+paxHint+'</td>'+
+      '<td style="text-align:center">'+packCell+'</td>'+
+      '<td style="text-align:center">'+looseCell+'</td>'+
+      '<td style="text-align:right;white-space:nowrap">'+totCell+'</td>'+
     '</tr>';
   }).join('');
   var note=keys.length
-    ? '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px">👁 SO tanggal <b>'+fmtDateShort(window._soViewDate)+'</b> — hanya bisa dilihat. Untuk mengubah, pilih tanggal hari ini.</div>'
+    ? '<div style="font-size:12.5px;color:var(--brown-soft);background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.55">👁 SO tanggal <b>'+fmtDateShort(window._soViewDate)+'</b> — hanya bisa dilihat. Untuk mengubah, pilih tanggal hari ini.<br><span style="font-size:11px">Pack &amp; ceceran dihitung ulang dari total (pack = total ÷ isi/pack). Yang tersimpan hanya total gramasi.</span></div>'
     : '<div style="font-size:12.5px;color:var(--orange);background:#FDF1E7;border-radius:8px;padding:9px 12px;margin-bottom:12px">Tidak ada Stock Opname di tanggal '+fmtDateShort(window._soViewDate)+'.</div>';
   c.innerHTML='<div class="card">'+
     '<div class="card-title">📦 Stock Opname — '+S.store.replace('SOYASUKA_','')+'</div>'+
     soDatePickerHtml()+
     '<div style="margin-top:12px">'+note+'</div>'+
-    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:420px">'+
-    '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:right">Qty Tersimpan</th></tr></thead>'+
+    '<div class="tbl-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="tbl" style="min-width:540px">'+
+    '<thead><tr><th>#</th><th>Nama Bahan</th><th style="text-align:center">Pack</th><th style="text-align:center">Ceceran</th><th style="text-align:right">Total</th></tr></thead>'+
     '<tbody>'+rowsHtml+'</tbody></table></div></div>';
 }
 window.renderSOReadonly=renderSOReadonly;
